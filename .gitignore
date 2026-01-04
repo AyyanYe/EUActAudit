@@ -1,0 +1,52 @@
+# -----------------------
+# Environment & secrets
+# -----------------------
+# dotenv files (local secrets/config)
+.env
+.env.*
+*.local
+
+# -----------------------
+# Python / FastAPI
+# -----------------------
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+venv*/
+# Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+# Builds / packaging
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+# Python toolfiles
+.python-version
+
+# -----------------------
+# Node / React (frontend)
+# -----------------------
+# Dependencies
+node_modules/
+# Build output
+build/
+dist/
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# -----------------------
+# Editor / OS
+# -----------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

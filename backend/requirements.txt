@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic
+openai
+langchain
+deepeval
+reportlab
+pypdf2
+python-multipart
