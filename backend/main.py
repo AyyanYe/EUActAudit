@@ -1,39 +1,29 @@
-import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from routers import audit, compliance 
 
 load_dotenv()
 
-if not os.getenv("OPENAI_API_KEY"):
-    print("CRITICAL ERROR: OPENAI_API_KEY is missing from environment!")
-else:
-    print("OPENAI_API_KEY detected.")
+# Initialize the Database (if not exists)
+import database
+database.init_db()
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+app = FastAPI()
 
-# 2. NOW import the routers (Safe because env vars are loaded)
-from routers.audit import router as audit_router
-from routers.compliance import router as compliance_router
-from database import init_db
-
-app = FastAPI(title="EU AI Act Auditor API")
-
+# Enable CORS (Allows Frontend to talk to Backend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(audit_router)
-app.include_router(compliance_router)
-
-@app.on_event("startup")
-def startup_event():
-    init_db()
-    print("Database initialized (audit_records.db)")
+# --- REGISTER ROUTERS ---
+# This connects your "audit.py" and "compliance.py" to the web server
+app.include_router(audit.router, prefix="/audit", tags=["Audit"])
+app.include_router(compliance.router)
 
 @app.get("/")
-def health_check():
-    return {"status": "Audit Engine Online", "version": "1.0"}
+def read_root():
+    return {"status": "AuditGenius Backend is Running"}

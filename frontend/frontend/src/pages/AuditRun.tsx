@@ -5,33 +5,26 @@ import { Textarea } from "./../components/ui/textarea";
 import { Input } from "./../components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./../components/ui/select";
 import { Alert, AlertDescription, AlertTitle } from "./../components/ui/alert";
-import { ShieldCheck, Download, Loader2, Plus, ArrowRight } from "lucide-react";
+import { ShieldCheck, Download, Loader2, Plus, ArrowRight, ExternalLink } from "lucide-react";
 import { AuditService } from "./../services/api";
+import { useUser } from "@clerk/clerk-react";
 
 export function AuditRun() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
+  const { user } = useUser();
   
   // Form Inputs
   const [description, setDescription] = useState('');
   const [customMetric, setCustomMetric] = useState('');
   const [userMetrics, setUserMetrics] = useState<string[]>([]);
   const [apiKey, setApiKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState('gpt-3.5-turbo');
+  // Default to a valid OpenRouter model ID
+  const [selectedModel, setSelectedModel] = useState('openai/gpt-3.5-turbo');
 
   // Results
   const [riskProfile, setRiskProfile] = useState<any>(null);
   const [auditResults, setAuditResults] = useState<any>(null);
-
-  // Helper: Dynamic Label based on selection
-  const getProviderInfo = (model: string) => {
-    if (model.includes('gpt')) return { label: 'OpenAI API Key', placeholder: 'sk-...' };
-    if (model.includes('claude')) return { label: 'Anthropic API Key', placeholder: 'sk-ant-...' };
-    if (model.includes('gemini')) return { label: 'Google Gemini API Key', placeholder: 'AIza...' };
-    return { label: 'API Key', placeholder: 'Enter API Key...' };
-  };
-
-  const providerInfo = getProviderInfo(selectedModel);
 
   const addMetric = () => {
     if (customMetric && userMetrics.length < 4) {
@@ -55,18 +48,25 @@ export function AuditRun() {
   };
 
   const handleRunAudit = async () => {
-    setLoading(true);
-    try {
-      // Run the actual test using the keys from Step 1
-      const results = await AuditService.runAudit(apiKey, riskProfile.metrics, selectedModel);
-      setAuditResults(results);
-      setStep(3);
-    } catch (error) {
-      alert("Audit failed. Please check your API Key.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      setLoading(true);
+      try {
+        // CHANGED: Now passing description as the final 'systemPrompt' argument
+        const results = await AuditService.runAudit(
+          apiKey, 
+          riskProfile.metrics, 
+          selectedModel, 
+          riskProfile.risk_level,
+          user?.id,
+          description // <--- THIS is sent as the System Prompt / Persona
+        );
+        setAuditResults(results);
+        setStep(3);
+      } catch (error) {
+        alert("Audit failed. Please check your API Key.");
+      } finally {
+        setLoading(false);
+      }
+    };
 
   const handleDownload = async () => {
     try {
@@ -74,7 +74,7 @@ export function AuditRun() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `audit_report_${selectedModel}.pdf`;
+      link.download = `audit_report_${selectedModel.replace('/', '_')}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -103,6 +103,7 @@ export function AuditRun() {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
+              <p className="text-xs text-slate-500 mt-1">This text will be used to simulate the AI's persona during testing.</p>
             </div>
 
             {/* 2. Metrics */}
@@ -127,30 +128,36 @@ export function AuditRun() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* 3. Model Selector */}
+              {/* 3. Model Selector (UPDATED FOR OPENROUTER) */}
               <div>
                 <label className="text-sm font-medium mb-1 block">Target Model</label>
                 <Select value={selectedModel} onValueChange={setSelectedModel}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="gpt-3.5-turbo">OpenAI: GPT-3.5 Turbo</SelectItem>
-                    <SelectItem value="gpt-4o">OpenAI: GPT-4o</SelectItem>
-                    <SelectItem value="claude-3-opus-20240229">Anthropic: Claude 3 Opus</SelectItem>
-                    <SelectItem value="claude-3-sonnet-20240229">Anthropic: Claude 3 Sonnet</SelectItem>
-                    <SelectItem value="gemini-1.5-pro">Google: Gemini 1.5 Pro</SelectItem>
+                    <SelectItem value="openai/gpt-3.5-turbo">OpenAI: GPT-3.5 Turbo</SelectItem>
+                    <SelectItem value="openai/gpt-4o">OpenAI: GPT-4o</SelectItem>
+                    <SelectItem value="anthropic/claude-3.5-sonnet">Anthropic: Claude 3.5 Sonnet</SelectItem>
+                    <SelectItem value="google/gemini-pro-1.5">Google: Gemini 1.5 Pro</SelectItem>
+                    <SelectItem value="meta-llama/llama-3-70b-instruct">Meta: Llama 3 70B</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* 4. API Key */}
+              {/* 4. API Key (UPDATED FOR UNIFIED KEY) */}
               <div>
-                <label className="text-sm font-medium mb-1 block">{providerInfo.label}</label>
+                <div className="flex justify-between items-center mb-1">
+                    <label className="text-sm font-medium block">OpenRouter API Key</label>
+                    <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-xs text-blue-600 flex items-center hover:underline">
+                        Get Key <ExternalLink className="h-3 w-3 ml-1"/>
+                    </a>
+                </div>
                 <Input 
                   type="password" 
-                  placeholder={providerInfo.placeholder} 
+                  placeholder="sk-or-v1-..." 
                   value={apiKey} 
                   onChange={(e) => setApiKey(e.target.value)} 
                 />
+                <p className="text-[10px] text-slate-500 mt-1">One key to access all models above.</p>
               </div>
             </div>
 
@@ -177,8 +184,8 @@ export function AuditRun() {
             <CardHeader><CardTitle>2. Confirm Execution</CardTitle></CardHeader>
             <CardContent>
               <div className="bg-slate-50 p-4 rounded-lg mb-6 text-sm text-slate-600">
-                You are about to audit <b>{selectedModel}</b> using the API key provided. 
-                This will generate synthetic attacks to test the metrics above.
+                You are about to audit <b>{selectedModel}</b> using the OpenRouter key provided. 
+                This will generate synthetic attacks against the specific persona described above.
               </div>
               
               <div className="flex gap-4">

@@ -5,17 +5,21 @@ import { Badge } from "./../components/ui/badge";
 import { Button } from "./../components/ui/button";
 import { FileText, Download, Loader2 } from "lucide-react";
 import { AuditService } from "./../services/api";
+import { useUser } from "@clerk/clerk-react";
 
 export function Reports() {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useUser();
 
-  useEffect(() => {
-    AuditService.getHistory()
+  useEffect(() => { 
+    if (user) {
+    AuditService.getHistory(user.id)
       .then(setReports)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, []);
+  }
+  }, [user]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">

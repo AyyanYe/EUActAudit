@@ -1,51 +1,64 @@
 from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
-from pydantic import BaseModel, Field
-from typing import List
 import os
+import json
 
-# 1. Update Output Structure to enforce exactly 4 metrics
-class RiskProfile(BaseModel):
-    risk_level: str = Field(description="High, Limited, or Minimal")
-    category: str = Field(description="The specific Annex III category (e.g., Employment, Education)")
-    metrics: List[str] = Field(description="A list of exactly 4 specific metrics to test (e.g., ['gender_bias', 'robustness', 'privacy', 'explainability'])")
-    reasoning: str = Field(description="Legal reasoning based on EU AI Act")
+async def analyze_risk(description: str, user_metrics: list):
+    """
+    Uses OpenRouter (GPT-3.5 or GPT-4) to classify the risk level 
+    according to the EU AI Act.
+    """
+    
+    # 1. Setup the LLM with OpenRouter
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY is missing. Cannot perform risk analysis.")
 
-class ComplianceAgent:
-    def __init__(self):
-        self.llm = ChatOpenAI(
-            model="gpt-4",
-            temperature=0,
-            openai_api_key=os.getenv("OPENAI_API_KEY")
-        )
-        self.parser = JsonOutputParser(pydantic_object=RiskProfile)
+    llm = ChatOpenAI(
+        model="openai/gpt-3.5-turbo", # Fast & Cheap for simple classification
+        api_key=api_key,
+        base_url="https://openrouter.ai/api/v1",
+        temperature=0
+    )
 
-    def analyze_use_case(self, description: str, user_metrics: List[str] = []):
-        """
-        Analyzes the use case. 
-        If user_metrics < 4, it auto-generates the remaining ones.
-        """
+    # 2. The Prompt
+    metrics_str = ", ".join(user_metrics) if user_metrics else "None provided"
+    
+    prompt = f"""
+    You are an EU AI Act Compliance Officer. Analyze this AI system.
+    
+    System Description: "{description}"
+    Intended Metrics: "{metrics_str}"
+    
+    Determine the Risk Category based on EU AI Act Annex III:
+    - 'High Risk': Critical infrastructure, Education, Employment, Essential private/public services, Law enforcement, Migration/Border control, Justice/Democratic processes.
+    - 'Limited Risk': Chatbots, Emotion recognition, Deepfakes (Transparency obligations).
+    - 'Minimal Risk': Spam filters, Video games, Inventory management.
+    
+    Also suggest 4 specific metrics to test if user provided fewer than 4.
+
+    Return JSON ONLY:
+    {{
+        "risk_level": "High Risk" | "Limited Risk" | "Minimal Risk",
+        "reasoning": "Short explanation...",
+        "metrics": ["Metric1", "Metric2", "Metric3", "Metric4"]
+    }}
+    """
+
+    # 3. Execution
+    try:
+        response = await llm.ainvoke(prompt)
+        content = response.content.strip()
         
-        # 2. Logic to handle user input
-        metrics_instruction = ""
-        if user_metrics:
-            metrics_instruction = f"The user has already requested these metrics: {user_metrics}. Keep these, and generate additional relevant metrics until you have exactly 4."
-        else:
-            metrics_instruction = "Generate 4 relevant technical metrics to audit this system (e.g. fairness, toxicity, privacy, hallucination)."
-
-        # 3. Updated Prompt
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are an expert EU AI Act Auditor. Analyze the AI system description."),
-            ("system", "Determine the Risk Level based on Annex III."),
-            ("system", f"{metrics_instruction} Return exactly 4 metrics in the list."),
-            ("system", "{format_instructions}"),
-            ("human", "{description}")
-        ])
-
-        chain = prompt | self.llm | self.parser
-        
-        return chain.invoke({
-            "description": description,
-            "format_instructions": self.parser.get_format_instructions()
-        })
+        # Clean markdown if present
+        if "```json" in content:
+            content = content.replace("```json", "").replace("```", "")
+            
+        return json.loads(content)
+    except Exception as e:
+        print(f"Risk Logic Error: {e}")
+        # Fallback response so the app doesn't crash
+        return {
+            "risk_level": "Unknown Risk", 
+            "reasoning": "Automatic analysis failed. Defaulting to safe mode.",
+            "metrics": ["Fairness", "Accuracy", "Robustness", "Transparency"]
+        }

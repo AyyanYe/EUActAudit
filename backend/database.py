@@ -5,65 +5,44 @@ from datetime import datetime
 DB_NAME = "audit_records.db"
 
 def init_db():
-    """Initializes the database with the required tables."""
+    """Initializes the database with the correct schema matching audit.py."""
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     
-    # 1. Update: Added 'metric_scores' column (TEXT) to store JSON data
+    # 1. Create table with ALL required columns
     c.execute('''
         CREATE TABLE IF NOT EXISTS audit_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT,
-            model_name TEXT,
-            compliance_score REAL,
-            metric_scores TEXT, 
-            status TEXT
-        )
-    ''')
-    
-    c.execute('''
-        CREATE TABLE IF NOT EXISTS test_results (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id INTEGER,
-            input_prompt TEXT,
-            model_response TEXT,
+            model TEXT,           
+            risk_level TEXT,      
             score INTEGER,
-            FOREIGN KEY(run_id) REFERENCES audit_runs(id)
+            details TEXT,         
+            timestamp TEXT
         )
     ''')
     
     conn.commit()
     conn.close()
 
-def save_audit_run(model_name, score, details, metric_breakdown):
+def save_audit_run(model, risk_level, score, details):
     """
     Saves a completed audit.
-    Args:
-        metric_breakdown: List of dicts [{'name': 'Gender', 'score': 85}, ...]
+    Matches the arguments sent from routers/audit.py
     """
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     
     timestamp = datetime.now().isoformat()
-    status = "COMPLIANT" if score >= 80 else "NON_COMPLIANT"
     
-    # 2. Convert list -> JSON string for storage
-    metrics_json = json.dumps(metric_breakdown)
+    # Dump details to JSON string
+    details_json = json.dumps(details)
     
     c.execute('''
-        INSERT INTO audit_runs (timestamp, model_name, compliance_score, metric_scores, status) 
+        INSERT INTO audit_runs (model, risk_level, score, details, timestamp) 
         VALUES (?, ?, ?, ?, ?)
-    ''', (timestamp, model_name, score, metrics_json, status))
+    ''', (model, risk_level, score, details_json, timestamp))
     
     run_id = c.lastrowid
-    
-    # Save the granular evidence
-    for item in details:
-        c.execute('''
-            INSERT INTO test_results (run_id, input_prompt, model_response, score) 
-            VALUES (?, ?, ?, ?)
-        ''', (run_id, item['input'], item['output'], item['score']))
-        
     conn.commit()
     conn.close()
     return run_id
