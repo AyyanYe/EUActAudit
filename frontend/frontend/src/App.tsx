@@ -3,7 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import { Dashboard } from "./pages/Dashboard";
 import { AuditRun } from "./pages/AuditRun";
 import { Reports } from "./pages/Reports";
-import { LayoutDashboard, ShieldAlert, FileText, Menu } from "lucide-react";
+import { GovernanceChat } from "./pages/GovernanceChat"; // <--- NEW IMPORT
+import { LayoutDashboard, ShieldAlert, FileText, Scale } from "lucide-react"; // <--- Added 'Scale' icon
 
 // Replace with your actual Clerk Key
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -30,8 +31,15 @@ function App() {
                 <Link to="/" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-all text-sm font-medium">
                   <LayoutDashboard size={18} /> Dashboard
                 </Link>
+
+                {/* --- NEW MVP FEATURE --- */}
+                <Link to="/governance" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-all text-sm font-medium text-blue-300">
+                  <Scale size={18} /> Compliance Chat
+                </Link>
+                {/* ----------------------- */}
+
                 <Link to="/audit" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-all text-sm font-medium">
-                  <ShieldAlert size={18} /> Run Audit
+                  <ShieldAlert size={18} /> Technical Audit
                 </Link>
                 <Link to="/reports" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-all text-sm font-medium">
                   <FileText size={18} /> History & Reports
@@ -48,9 +56,10 @@ function App() {
 
             {/* Main Content Area */}
             <main className="flex-1 ml-64 p-8 overflow-y-auto">
-              <div className="max-w-6xl mx-auto">
+              <div className="max-w-7xl mx-auto">
                 <Routes>
                   <Route path="/" element={<Dashboard />} />
+                  <Route path="/governance" element={<GovernanceChat />} /> {/* <--- NEW ROUTE */}
                   <Route path="/audit" element={<AuditRun />} />
                   <Route path="/reports" element={<Reports />} />
                 </Routes>

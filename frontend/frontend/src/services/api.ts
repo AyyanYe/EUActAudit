@@ -46,3 +46,23 @@ export const AuditService = {
     return response.data;
   }
 };
+
+export const GovernanceService = {
+  // 1. Start a new Profile
+  startInterview: async (name: string, description: string) => {
+    const response = await axios.post(`${API_URL}/interview/start`, { 
+      name, 
+      description 
+    });
+    return response.data; // Returns { project_id, message }
+  },
+
+  // 2. Send Message & Get Updated State
+  sendMessage: async (projectId: number, message: string) => {
+    const response = await axios.post(`${API_URL}/interview/chat`, {
+      project_id: projectId,
+      message: message
+    });
+    return response.data; // Returns { response, risk_level, facts, obligations }
+  }
+};

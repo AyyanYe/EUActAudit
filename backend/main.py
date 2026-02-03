@@ -1,29 +1,25 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-from routers import audit, compliance 
+# Import the new router
+from routers import interview 
+from database import init_db
 
-load_dotenv()
-
-# Initialize the Database (if not exists)
-import database
-database.init_db()
+# Initialize DB on startup
+init_db()
 
 app = FastAPI()
 
-# Enable CORS (Allows Frontend to talk to Backend)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- REGISTER ROUTERS ---
-# This connects your "audit.py" and "compliance.py" to the web server
-app.include_router(audit.router, prefix="/audit", tags=["Audit"])
-app.include_router(compliance.router)
+# Register the new Interview/Governance Router
+app.include_router(interview.router, prefix="/interview", tags=["Governance"])
 
 @app.get("/")
 def read_root():
-    return {"status": "AuditGenius Backend is Running"}
+    return {"status": "EU AI Act Governance System Active"}
