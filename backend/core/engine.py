@@ -5,6 +5,60 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from core.risk_rules import evaluate_compliance_state
 
+REQUIRED_FACTS = [
+    {
+        "key": "domain",
+        "question": "Which domain does the system operate in (e.g., employment, credit, education, healthcare, public services, law enforcement)?",
+    },
+    {
+        "key": "role",
+        "question": "Are you the provider (built the model) or the deployer (using a model from someone else)?",
+    },
+    {
+        "key": "purpose",
+        "question": "What is the system's primary purpose (e.g., candidate screening, credit scoring, fraud detection)?",
+    },
+    {
+        "key": "decision_stage",
+        "question": "Where does the system sit in the decision process (advisory, pre-screening, or final decision)?",
+    },
+    {
+        "key": "automation",
+        "question": "Is the system fully automated, or does a human review and override its outputs?",
+    },
+    {
+        "key": "data_type",
+        "question": "What type of data does it use (personal data, biometric data, sensitive data, or non-personal)?",
+    },
+    {
+        "key": "affected_stakeholders",
+        "question": "Who is affected by the system's outcomes (e.g., candidates, employees, customers, students)?",
+    },
+    {
+        "key": "deployment_region",
+        "question": "Where will the system be deployed (EU only, mixed regions, or outside the EU)?",
+    },
+    {
+        "key": "human_oversight",
+        "question": "What human oversight is in place (who can pause or override decisions)?",
+    },
+]
+
+
+def _is_missing(value: str | None) -> bool:
+    if value is None:
+        return True
+    normalized = str(value).strip().lower()
+    return normalized in {"", "unknown", "unsure", "n/a", "na"}
+
+
+def _missing_facts(facts: dict) -> list[dict]:
+    missing = []
+    for item in REQUIRED_FACTS:
+        if _is_missing(facts.get(item["key"])):
+            missing.append(item)
+    return missing
+
 # <--- LOAD THE ENV FILE IMMEDIATELY ---
 load_dotenv() 
 
@@ -31,12 +85,16 @@ class GovernanceEngine:
         Your job is to listen to the user and EXTRACT structured facts about their AI system.
 
         EXTRACT THESE SPECIFIC KEYS if mentioned:
-        - "domain": The area of use (e.g., recruitment, credit_scoring, chatbot, healthcare).
+        - "domain": Area of use (e.g., recruitment, credit_scoring, chatbot, healthcare).
         - "role": "provider" (built it) or "deployer" (bought/using it).
         - "purpose": Specific goal (e.g., ranking_candidates, detecting_fraud).
-        - "data_type": "personal", "biometric", "anonymous".
-        - "automation": "fully_automated", "human_in_the_loop".
-        - "context": Where is it used? (e.g., workplace, public_space, school).
+        - "decision_stage": "advisory", "pre_screening", "final_decision".
+        - "data_type": "personal", "biometric", "sensitive", "non_personal".
+        - "automation": "fully_automated", "human_in_the_loop", "human_on_the_loop".
+        - "context": Where used? (e.g., workplace, public_space, school).
+        - "affected_stakeholders": Who is affected (e.g., candidates, employees, customers).
+        - "deployment_region": "eu_only", "mixed", "non_eu".
+        - "human_oversight": Short description of who can override or pause decisions.
 
         Return ONLY a raw JSON object. Do not invent facts. If unclear, ignore the key.
         Example: {"domain": "recruitment", "role": "deployer", "data_type": "personal"}
@@ -59,26 +117,25 @@ class GovernanceEngine:
         """
         The 'Interviewer': Decides what to ask next based on missing info.
         """
-        # Define what we usually need to know
-        critical_keys = ["domain", "role", "data_type", "automation"]
-        missing_info = [key for key in critical_keys if key not in facts]
+        missing_info = _missing_facts(facts)
+        next_question = missing_info[0]["question"] if missing_info else None
 
         prompt = f"""
         You are a Senior EU AI Act Compliance Consultant.
-        
+
         CURRENT STATE:
         - Known Facts: {json.dumps(facts)}
         - Assessed Risk Level: {risk_level}
-        - Missing Critical Info: {missing_info}
-        
+        - Next Question: {next_question}
+
         GOAL:
-        1. Acknowledge what the user just said.
-        2. If 'Risk Level' is HIGH or UNACCEPTABLE, warn them clearly but professionally.
-        3. Ask the NEXT most important question to fill the 'Missing Critical Info'.
-        4. If all info is present, suggest generating the Compliance Report.
+        1. Acknowledge what the user just said in one short sentence.
+        2. If risk is HIGH or UNACCEPTABLE, add a brief warning.
+        3. Ask the next targeted question (use the provided Next Question exactly).
+        4. If there is no Next Question, suggest generating the compliance report.
 
         Keep it concise (2-3 sentences). Do not lecture. Be helpful.
         """
-        
+
         res = await self.llm.ainvoke(prompt)
         return res.content
