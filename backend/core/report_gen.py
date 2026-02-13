@@ -32,8 +32,9 @@ def create_compliance_cert(data: dict) -> bytes:
     elements = []
 
     # --- 1. HEADER & SUMMARY ---
-    elements.append(Paragraph("EU AI Act Compliance Report", title_style))
+    elements.append(Paragraph("EU AI Act Compliance Report (Preliminary Draft)", title_style))
     elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ParagraphStyle('Date', parent=body_style, alignment=TA_CENTER)))
+    elements.append(Paragraph("<i>This report is a preliminary analysis based on provided information and requires human legal review for final verification.</i>", ParagraphStyle('Disclaimer', parent=body_style, alignment=TA_CENTER, fontSize=9, textColor=colors.HexColor('#666666'))))
     elements.append(Spacer(1, 20))
 
     # Summary Table
@@ -44,7 +45,7 @@ def create_compliance_cert(data: dict) -> bytes:
         ["Model Tested:", data.get('model_tested', 'Unknown')],
         ["Risk Classification:", risk_level],
         ["Compliance Score:", f"{data.get('compliance_score', 0)}/100"],
-        ["Overall Status:", "COMPLIANT" if data.get('compliance_score', 0) >= 80 else "NON-COMPLIANT"]
+        ["Overall Status:", ("Likely Aligned" if data.get('compliance_score', 0) >= 80 else "Potential Gaps Identified") + " (Requires Human Review)"]
     ]
     
     t = Table(summary_data, colWidths=[2.5*inch, 3*inch])

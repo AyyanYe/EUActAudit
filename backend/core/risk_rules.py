@@ -14,18 +14,68 @@ def evaluate_compliance_state(facts: dict):
     # --- LEVEL 1: UNACCEPTABLE RISK (BANS - Article 5) ---
     # Effective Feb 2, 2025
     
-    if facts.get("purpose") == "social_scoring":
-        return "UNACCEPTABLE", ["BANNED: Social scoring is prohibited under Art 5."], ["STOP: This system cannot be legally deployed."]
-
-    if facts.get("purpose") == "emotion_recognition" and facts.get("context") in ["workplace", "education"]:
-        return "UNACCEPTABLE", ["BANNED: Emotion recognition in work/schools is prohibited."], ["STOP: Change the use case immediately."]
+    # Check for prohibited practices with exemption probe logic
+    is_prohibited_emotion_recognition = (
+        facts.get("purpose") == "emotion_recognition" and 
+        facts.get("context") in ["workplace", "education", "school"]
+    )
+    
+    is_prohibited_social_scoring = facts.get("purpose") == "social_scoring"
+    
+    is_prohibited_biometric = (
+        facts.get("purpose") == "biometric_id" and 
+        facts.get("biometric_mode") == "real_time" and 
+        facts.get("context") == "public_space"
+    )
+    
+    # If prohibited practice detected, check if exemption probe has been answered
+    if is_prohibited_emotion_recognition or is_prohibited_social_scoring or is_prohibited_biometric:
+        exemption_answered = facts.get("exemption_probe_answered")
         
-    if facts.get("purpose") == "biometric_id" and facts.get("biometric_mode") == "real_time" and facts.get("context") == "public_space":
-        # Exception logic could go here, but default to ban for MVP
-        return "UNACCEPTABLE", ["BANNED: Real-time remote biometric ID in public spaces."], ["STOP: Only law enforcement with judicial auth can do this."]
+        # If exemption probe not yet asked, return PENDING status (will trigger probe question)
+        if exemption_answered is None:
+            if is_prohibited_emotion_recognition:
+                return "PENDING_PROHIBITED", [], ["EXEMPTION_PROBE_NEEDED: Emotion recognition in education/workplace requires exemption check."]
+            elif is_prohibited_social_scoring:
+                return "PENDING_PROHIBITED", [], ["EXEMPTION_PROBE_NEEDED: Social scoring requires exemption check."]
+            elif is_prohibited_biometric:
+                return "PENDING_PROHIBITED", [], ["EXEMPTION_PROBE_NEEDED: Real-time biometric ID requires exemption check."]
+        
+        # If exemption probe answered "no" (no medical/safety exemption), then it's UNACCEPTABLE
+        if exemption_answered == "no":
+            if is_prohibited_emotion_recognition:
+                context_type = "school" if facts.get("context") in ["education", "school"] else "workplace"
+                return "UNACCEPTABLE", [
+                    "BANNED: Emotion recognition in education/workplace is prohibited under Article 5."
+                ], [
+                    f"BLOCKED: This use case is illegal in the EU under Article 5 due to the use of emotion recognition in a {context_type} context. I cannot proceed with generating a compliance profile for a banned use case."
+                ]
+            elif is_prohibited_social_scoring:
+                return "UNACCEPTABLE", [
+                    "BANNED: Social scoring is prohibited under Article 5."
+                ], [
+                    "BLOCKED: This use case is illegal in the EU under Article 5 due to the use of social scoring. Article 5 prohibits social scoring systems per se (inherently illegal). I cannot proceed with generating a compliance profile for a banned use case."
+                ]
+            elif is_prohibited_biometric:
+                return "UNACCEPTABLE", [
+                    "BANNED: Real-time remote biometric ID in public spaces is prohibited under Article 5."
+                ], [
+                    "BLOCKED: This use case is illegal in the EU under Article 5 due to the use of real-time remote biometric identification in public spaces. Article 5 prohibits this practice per se (inherently illegal), except for law enforcement with judicial authorization. I cannot proceed with generating a compliance profile for a banned use case."
+                ]
+        
+        # If exemption probe answered "yes" (has medical/safety exemption), treat as HIGH RISK instead
+        # (The system may be allowed but requires strict compliance)
+        if exemption_answered == "yes":
+            # Fall through to HIGH RISK evaluation below
+            # Note: Even with exemption, emotion recognition in education is still HIGH RISK
+            pass
 
     # --- LEVEL 2: HIGH RISK (Annex III) ---
     # Effective Aug 2026, but companies prepare now
+    
+    # Skip HIGH RISK evaluation if we already determined UNACCEPTABLE
+    if risk_level == "UNACCEPTABLE":
+        return risk_level, obligations, warnings
     
     high_risk_domains = [
         "recruitment", "hr", "worker_management",  # Annex III (4)
@@ -53,6 +103,15 @@ def evaluate_compliance_state(facts: dict):
                 {"code": "ART_26", "title": "Human Oversight", "desc": "Ensure human overseers are trained and have authority to stop the system."},
                 {"code": "ART_26_LOGS", "title": "Monitoring & Logging", "desc": "Keep logs of operation for at least 6 months."}
             ])
+            
+            # Check for missing or insufficient human oversight (critical compliance gap). Article 14: "partial" and "absent" are non-compliant.
+            if facts.get("human_oversight") in ["no", "absent", "partial"] or facts.get("automation") == "fully_automated":
+                warnings.append("CRITICAL: Article 14 requires human oversight for high-risk systems. Fully automated decisions without human review are non-compliant.")
+                obligations.append({
+                    "code": "ART_14_OVERSIGHT", 
+                    "title": "Mandatory Human Oversight", 
+                    "desc": "High-risk systems MUST have human oversight. You cannot rely solely on automated rejections. Add human review step for all decisions."
+                })
         else:
             warnings.append("Role unclear: Are you building this (Provider) or buying it (Deployer)?")
 

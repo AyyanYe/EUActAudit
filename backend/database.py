@@ -19,18 +19,24 @@ class Project(Base):
     __tablename__ = "projects"
     
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, index=True)  # Clerk user ID
     name = Column(String, default="Untitled AI Project")
     description = Column(Text)
     created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
     # The 'State' of the system
     risk_level = Column(String, default="Unknown") # e.g. "HIGH", "LIMITED", "UNACCEPTABLE"
     status = Column(String, default="Draft")       # e.g. "Assessment In Progress"
+    interview_state = Column(String, default="INIT")  # State machine state: INIT, INTAKE, DISCOVERY, CHECKPOINT, ASSESSMENT
+    confidence_level = Column(String, default="LOW")  # Confidence: LOW, MEDIUM, HIGH
+    compliance_status = Column(String, default="PENDING")  # "PENDING", "COMPLIANT", "NON_COMPLIANT", "TERMINATED"
     
     # Relationships
     facts = relationship("Fact", back_populates="project", cascade="all, delete-orphan")
     obligations = relationship("Obligation", back_populates="project", cascade="all, delete-orphan")
-    logs = relationship("InterviewLog", back_populates="project")
+    logs = relationship("InterviewLog", back_populates="project", order_by="InterviewLog.timestamp")
+    workflows = relationship("Workflow", back_populates="project", cascade="all, delete-orphan")
 
 class Fact(Base):
     """
@@ -65,17 +71,37 @@ class Obligation(Base):
     
     project = relationship("Project", back_populates="obligations")
 
+class Workflow(Base):
+    """
+    Represents a distinct workflow within a Project.
+    Each workflow has its own chat history and can have its own risk assessment.
+    """
+    __tablename__ = "workflows"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    risk_level = Column(String, default="Unknown")
+    created_at = Column(DateTime, default=datetime.now)
+    
+    # Relationships
+    project = relationship("Project", back_populates="workflows")
+    logs = relationship("InterviewLog", back_populates="workflow", cascade="all, delete-orphan")
+
 class InterviewLog(Base):
     """Stores the raw chat history for context."""
     __tablename__ = "interview_logs"
     
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(Integer, ForeignKey("projects.id"))
+    workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=True)  # NULL = General/Default chat
     sender = Column(String) # "user" or "bot"
     message = Column(Text)
     timestamp = Column(DateTime, default=datetime.now)
     
     project = relationship("Project", back_populates="logs")
+    workflow = relationship("Workflow", back_populates="logs")
 
 # Initialization Logic
 def init_db():

@@ -3,8 +3,10 @@ import { BrowserRouter as Router, Routes, Route, Link } from "react-router-dom";
 import { Dashboard } from "./pages/Dashboard";
 import { AuditRun } from "./pages/AuditRun";
 import { Reports } from "./pages/Reports";
-import { GovernanceChat } from "./pages/GovernanceChat"; // <--- NEW IMPORT
-import { LayoutDashboard, ShieldAlert, FileText, Scale } from "lucide-react"; // <--- Added 'Scale' icon
+import { GovernanceChat } from "./pages/GovernanceChat";
+import { PrivacyPolicy } from "./pages/PrivacyPolicy";
+import { TermsOfUse } from "./pages/TermsOfUse";
+import { LayoutDashboard, ShieldAlert, FileText, Scale, Lock, FileCheck } from "lucide-react";
 
 // Replace with your actual Clerk Key
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
@@ -44,6 +46,14 @@ function App() {
                 <Link to="/reports" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-all text-sm font-medium">
                   <FileText size={18} /> History & Reports
                 </Link>
+                <div className="pt-2 mt-2 border-t border-slate-700">
+                  <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-all text-sm font-medium text-slate-400">
+                    <Lock size={18} /> Privacy Policy
+                  </Link>
+                  <Link to="/terms" className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-800 transition-all text-sm font-medium text-slate-400">
+                    <FileCheck size={18} /> Terms of Use
+                  </Link>
+                </div>
               </nav>
 
               <div className="p-4 border-t border-slate-800">
@@ -62,6 +72,8 @@ function App() {
                   <Route path="/governance" element={<GovernanceChat />} /> {/* <--- NEW ROUTE */}
                   <Route path="/audit" element={<AuditRun />} />
                   <Route path="/reports" element={<Reports />} />
+                  <Route path="/privacy" element={<PrivacyPolicy />} />
+                  <Route path="/terms" element={<TermsOfUse />} />
                 </Routes>
               </div>
             </main>

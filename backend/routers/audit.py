@@ -4,9 +4,20 @@ from typing import List, Optional
 import json
 import sqlite3
 from datetime import datetime
-from core.evaluation_engine import AuditEngine
 
 router = APIRouter()
+
+# Lazy import for AuditEngine (only import when needed to avoid numpy dependency at startup)
+def get_audit_engine():
+    """Lazy import of AuditEngine to avoid numpy dependency at startup."""
+    try:
+        from core.evaluation_engine import AuditEngine
+        return AuditEngine
+    except ImportError as e:
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Audit engine dependencies not installed. Please install numpy and other required packages: {str(e)}"
+        )
 
 # 1. Request Model
 class AuditRequest(BaseModel):
@@ -41,7 +52,8 @@ async def run_audit_endpoint(request: AuditRequest):
     try:
         print(f"Received Audit Request for {request.model_name} from {request.user_id}")
         
-        # Initialize Engine
+        # Initialize Engine (lazy import)
+        AuditEngine = get_audit_engine()
         engine = AuditEngine(
             target_api_key=request.api_key,
             model_name=request.model_name
@@ -74,11 +86,12 @@ async def run_audit_endpoint(request: AuditRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")
-def get_audit_history(user_id: Optional[str] = None):
+def get_audit_history(user_id: Optional[str] = Query(None)):
+    """Get audit history, optionally filtered by user_id."""
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    if user_id:
+    if user_id and user_id.strip():  # Only filter if user_id is provided and not empty
         cursor.execute(
             "SELECT id, model, risk_level, score, timestamp, system_prompt FROM audit_runs WHERE user_id = ? ORDER BY timestamp DESC", 
             (user_id,)
@@ -88,12 +101,25 @@ def get_audit_history(user_id: Optional[str] = None):
         
     rows = cursor.fetchall()
     conn.close()
-    # Convert rows to dicts
-    history = [dict(row) for row in rows]
     
-    # Optional: Parse 'details' if you need it in frontend history
-    # for item in history:
-    #     if 'details' in item and isinstance(item['details'], str):
-    #         item['details'] = json.loads(item['details'])
-            
+    # Convert sqlite3.Row objects to dicts (row_factory is set in get_db_connection)
+    # sqlite3.Row supports dictionary-like access with row['column_name'] but NOT .get() method
+    history = []
+    for row in rows:
+        # All columns are selected in the SQL query, so they should all exist
+        # Use try-except to handle any missing columns gracefully
+        try:
+            system_prompt = row['system_prompt'] if 'system_prompt' in row.keys() else None
+        except (KeyError, IndexError):
+            system_prompt = None
+        
+        history.append({
+            'id': row['id'],
+            'model': row['model'],
+            'risk_level': row['risk_level'],
+            'score': row['score'],
+            'timestamp': row['timestamp'],
+            'system_prompt': system_prompt
+        })
+    
     return history
