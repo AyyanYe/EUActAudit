@@ -46,3 +46,58 @@ def is_planned_value(value: str) -> bool:
     value_lower = value.lower()
     return value_lower in ["planned_remediation", "planned", "will implement", "we'll add", "future"]
 
+
+# ---------------------------------------------------------------------------
+# Confidence scoring
+# ---------------------------------------------------------------------------
+
+# Facts below this threshold trigger a verification question before
+# the system uses them for compliance decisions.
+CONFIDENCE_THRESHOLD = 70
+
+def compute_fact_confidence(fact_key: str, fact_value: str) -> int:
+    """
+    Deterministic confidence floor based on the *category* of a fact's value.
+
+    Returns 0-100.  This acts as a ceiling that the LLM can only LOWER
+    (via ``min(deterministic, llm_score)``), never inflate.
+
+    Scoring logic:
+      - Explicit positive ("yes", "present", …)        → 90
+      - Explicit negative ("no", "absent", …)           → 85  (user clearly stated it)
+      - Planned / future                                → 70  (intent stated, not done)
+      - "partial"                                       → 50
+      - "partial_or_unclear"                            → 40  (explicitly uncertain)
+      - Any other non-empty string longer than 2 chars  → 85  (user likely stated it)
+      - Very short / empty                              → 0-60
+    """
+    if not fact_value or not fact_value.strip():
+        return 0
+
+    val = fact_value.strip().lower()
+
+    # Explicit positive statements — high confidence
+    if is_positive_value(val):
+        return 90
+
+    # Explicit negative statements — high confidence (user clearly said "no")
+    if is_negative_value(val):
+        return 85
+
+    # Planned = user stated intent but it's not done yet
+    if is_planned_value(val):
+        return 70
+
+    # Partial / unclear — low confidence by definition
+    if val == "partial_or_unclear":
+        return 40
+    if val == "partial":
+        return 50
+
+    # Non-compliance facts (domain, role, purpose, data_type, context, etc.)
+    # If a value exists and is reasonably long, the user likely stated it explicitly.
+    if len(val) > 2:
+        return 85
+
+    return 60  # Very short values are suspect
+

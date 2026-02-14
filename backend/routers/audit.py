@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 import json
-import sqlite3
 from datetime import datetime
+from sqlalchemy.orm import Session
+from database import get_db, AuditRun
 
 router = APIRouter()
 
@@ -28,27 +29,24 @@ class AuditRequest(BaseModel):
     user_id: str = "anonymous"
     system_prompt: str
 
-def get_db_connection():
-    conn = sqlite3.connect('audit_records.db')
-    conn.row_factory = sqlite3.Row
-    return conn
 
-# 2. Save Function
-def save_audit_run(model, risk_level, score, details, user_id, system_prompt):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO audit_runs (model, risk_level, score, details, user_id, system_prompt, timestamp) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (model, risk_level, score, json.dumps(details), user_id, system_prompt, datetime.now().isoformat())
+# 2. Save Function (now uses SQLAlchemy + unified DB)
+def save_audit_run(db: Session, model, risk_level, score, details, user_id, system_prompt):
+    audit_run = AuditRun(
+        model=model,
+        risk_level=risk_level,
+        score=score,
+        details=json.dumps(details),
+        user_id=user_id,
+        system_prompt=system_prompt,
+        timestamp=datetime.now().isoformat(),
     )
-    conn.commit()
-    conn.close()
+    db.add(audit_run)
+    db.commit()
+
 
 @router.post("/run-bias-test")
-async def run_audit_endpoint(request: AuditRequest):
+async def run_audit_endpoint(request: AuditRequest, db: Session = Depends(get_db)):
     try:
         print(f"Received Audit Request for {request.model_name} from {request.user_id}")
         
@@ -70,8 +68,9 @@ async def run_audit_endpoint(request: AuditRequest):
         results["system_prompt"] = request.system_prompt
         # -------------------------------------------------------------------
 
-        # Save to DB
+        # Save to DB (unified database)
         save_audit_run(
+            db,
             request.model_name, 
             request.risk_level, 
             results['compliance_score'], 
@@ -86,40 +85,23 @@ async def run_audit_endpoint(request: AuditRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")
-def get_audit_history(user_id: Optional[str] = Query(None)):
+def get_audit_history(user_id: Optional[str] = Query(None), db: Session = Depends(get_db)):
     """Get audit history, optionally filtered by user_id."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    query = db.query(AuditRun)
     
-    if user_id and user_id.strip():  # Only filter if user_id is provided and not empty
-        cursor.execute(
-            "SELECT id, model, risk_level, score, timestamp, system_prompt FROM audit_runs WHERE user_id = ? ORDER BY timestamp DESC", 
-            (user_id,)
-        )
-    else:
-        cursor.execute("SELECT id, model, risk_level, score, timestamp, system_prompt FROM audit_runs ORDER BY timestamp DESC")
-        
-    rows = cursor.fetchall()
-    conn.close()
+    if user_id and user_id.strip():
+        query = query.filter(AuditRun.user_id == user_id)
     
-    # Convert sqlite3.Row objects to dicts (row_factory is set in get_db_connection)
-    # sqlite3.Row supports dictionary-like access with row['column_name'] but NOT .get() method
-    history = []
-    for row in rows:
-        # All columns are selected in the SQL query, so they should all exist
-        # Use try-except to handle any missing columns gracefully
-        try:
-            system_prompt = row['system_prompt'] if 'system_prompt' in row.keys() else None
-        except (KeyError, IndexError):
-            system_prompt = None
-        
-        history.append({
-            'id': row['id'],
-            'model': row['model'],
-            'risk_level': row['risk_level'],
-            'score': row['score'],
-            'timestamp': row['timestamp'],
-            'system_prompt': system_prompt
-        })
+    runs = query.order_by(AuditRun.timestamp.desc()).all()
     
-    return history
+    return [
+        {
+            "id": run.id,
+            "model": run.model,
+            "risk_level": run.risk_level,
+            "score": run.score,
+            "timestamp": run.timestamp,
+            "system_prompt": run.system_prompt,
+        }
+        for run in runs
+    ]

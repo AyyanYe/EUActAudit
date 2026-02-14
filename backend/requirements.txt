@@ -19,3 +19,4 @@ pandas
 pyjwt
 requests
 PyJWT
+psycopg2-binary

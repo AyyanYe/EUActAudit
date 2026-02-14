@@ -16,9 +16,11 @@ from core.obligation_mapper import (
     get_obligation_code_for_fact, 
     is_negative_value, 
     is_positive_value, 
-    is_planned_value
+    is_planned_value,
+    compute_fact_confidence,
 )
 from core.dialogue_memory import compute_topic_ask_count, compute_stuck_on_topic
+from core.eu_ai_act_context import get_article_context_for_topic, get_article_context_for_query
 
 # Lazy import for report generation (optional dependency)
 try:
@@ -28,6 +30,31 @@ except ImportError:
 
 router = APIRouter()
 engine = GovernanceEngine()
+
+# Mapping from obligation codes to compliance topic keys (for RAG context)
+OB_CODE_TO_TOPIC = {
+    "ART_14_OVERSIGHT": "human_oversight",
+    "ART_10": "data_governance",
+    "ART_15": "accuracy_robustness",
+    "ART_12": "record_keeping",
+    "ART_50": "transparency",
+}
+
+
+def _enrich_obligation(ob_dict: dict) -> dict:
+    """Add remediation_context with article citations from the RAG store."""
+    code = ob_dict.get("code", "")
+    status = (ob_dict.get("status") or "PENDING").strip().lower()
+    # Only add context for obligations that have gaps or are pending
+    if status in ("gap_detected", "pending", "under_review"):
+        topic = OB_CODE_TO_TOPIC.get(code)
+        if topic:
+            context = get_article_context_for_topic(topic)
+            if context:
+                # Extract just the first article reference (concise for sidebar)
+                first_line = context.split("\n")[0].strip()
+                ob_dict["remediation_context"] = first_line
+    return ob_dict
 
 
 def _parse_workflow_steps(fact_dict: dict) -> List[str]:
@@ -147,7 +174,30 @@ async def chat_interview(
     confidence_scores = extracted_data.pop("confidence_scores", None) or {}
     if not isinstance(confidence_scores, dict):
         confidence_scores = {}
-    
+
+    # 4.5. ANTI-MANIPULATION GUARDRAIL — Detect blanket affirmations
+    # If multiple compliance topics flip from unset/gap → "yes"/"present" in a single turn,
+    # that's almost certainly the user giving a blanket "yes to everything" without evidence.
+    # Downgrade those to "partial_or_unclear" so the bot must verify each one individually.
+    COMPLIANCE_TOPICS = ["human_oversight", "data_governance", "accuracy_robustness", "record_keeping"]
+    POSITIVE_VALUES = {"yes", "present", "planned", "planned_remediation"}
+    UNSET_OR_GAP = {"", "absent", "no", "partial", "partial_or_unclear"}
+
+    topics_flipping_positive = []
+    for topic in COMPLIANCE_TOPICS:
+        new_val = str(extracted_data.get(topic, "")).strip().lower()
+        old_val = (facts_before.get(topic) or "").strip().lower()
+        # Topic is flipping from unset/gap to positive in this turn
+        if new_val in POSITIVE_VALUES and old_val in UNSET_OR_GAP:
+            topics_flipping_positive.append(topic)
+
+    if len(topics_flipping_positive) >= 2:
+        # Multiple topics flipping positive at once → blanket affirmation detected
+        print(f"[ANTI-MANIPULATION] Blanket affirmation detected: {topics_flipping_positive} all flipping positive in one turn. Downgrading to partial_or_unclear.")
+        for topic in topics_flipping_positive:
+            extracted_data[topic] = "partial_or_unclear"
+            confidence_scores[topic] = 35
+
     # 5. UPDATE DB with extracted facts
     for key, value in extracted_data.items():
         if key == "confidence_scores":
@@ -157,10 +207,19 @@ async def chat_interview(
             fact_value = json.dumps(value)
         else:
             fact_value = str(value)
-        conf = 100
+        # Hybrid confidence: deterministic floor + LLM can only LOWER, never inflate
+        deterministic_conf = compute_fact_confidence(key, fact_value)
         if isinstance(confidence_scores.get(key), (int, float)):
-            conf = max(0, min(100, int(confidence_scores[key])))
+            llm_conf = max(0, min(100, int(confidence_scores[key])))
+            conf = min(deterministic_conf, llm_conf)  # LLM can lower, not inflate
+        else:
+            conf = deterministic_conf  # LLM didn't score this fact — use deterministic
+
         if existing_fact:
+            if existing_fact.value == fact_value:
+                # Same value re-extracted — user implicitly confirmed it.
+                # Keep the HIGHER confidence (re-statement = more certain).
+                conf = max(conf, existing_fact.confidence or 0)
             existing_fact.value = fact_value
             existing_fact.confidence = conf
         else:
@@ -288,6 +347,12 @@ async def chat_interview(
                 last_updated_fact_key = key
                 break
     
+    # 6.6. Detect workflow_steps changes
+    # Also track if workflow_steps was just updated (useful for engine context)
+    old_workflow = _parse_workflow_steps(facts_before)
+    new_workflow = _parse_workflow_steps(fact_dict)
+    workflow_just_updated = (old_workflow != new_workflow) and len(new_workflow) > 0
+    
     # 7. STATE MACHINE: Determine current state
     current_state = InterviewState(project.interview_state or InterviewState.INIT.value)
     next_state = StateMachine.determine_state(fact_dict, current_state)
@@ -313,12 +378,19 @@ async def chat_interview(
                 next_state = InterviewState.CHECKPOINT
         
         # Save Obligations to DB (Avoid duplicates)
-        # Handle both dict format and string format for obligations
+        # GUARD: In early states (INTAKE/DISCOVERY/WORKFLOW), only save PROHIBITED obligations.
+        # Full HIGH/LIMITED obligation creation is delayed until CHECKPOINT+.
+        is_full_eval = StateMachine.is_full_evaluation_state(next_state)
+        
         for ob in required_obligations:
             if isinstance(ob, dict):
+                ob_code = ob.get('code', '')
+                # In early states, only process BANNED/PROHIBITED obligations
+                if not is_full_eval and not ob_code.startswith("BANNED"):
+                    continue
                 exists = db.query(Obligation).filter(
                     Obligation.project_id == project.id, 
-                    Obligation.code == ob.get('code', '')
+                    Obligation.code == ob_code
                 ).first()
                 if not exists:
                     db.add(Obligation(
@@ -330,6 +402,9 @@ async def chat_interview(
                     ))
             elif isinstance(ob, str):
                 # Handle string format obligations (e.g., "BANNED: ...")
+                # In early states, only process BANNED obligations
+                if not is_full_eval and not str(ob).startswith("BANNED"):
+                    continue
                 exists = db.query(Obligation).filter(
                     Obligation.project_id == project.id, 
                     Obligation.code == ob
@@ -490,26 +565,23 @@ async def chat_interview(
     # 12. GENERATE RESPONSE (The Interviewer) - state-aware
     # For HIGH risk, pass ALL project obligations so engine sees full status (e.g. ART_14 planned_remediation)
     # and can transition to next obligation / completed state instead of looping
-    obligations_with_status = []
-    if risk_level == "HIGH":
-        all_db_obligations = db.query(Obligation).filter(Obligation.project_id == project.id).all()
-        obligations_with_status = [
-            {"code": ob.code, "title": ob.title, "description": ob.description or ob.title, "status": ob.status or "PENDING"}
-            for ob in all_db_obligations
-        ]
-    elif required_obligations:
-        ob_codes = [ob.get('code', '') if isinstance(ob, dict) else str(ob) for ob in required_obligations]
-        ob_codes = [c for c in ob_codes if c]
-        db_obligations_map = {ob.code: ob.status for ob in db.query(Obligation).filter(
-            Obligation.project_id == project.id,
-            Obligation.code.in_(ob_codes)
-        ).all()} if ob_codes else {}
-        for ob in required_obligations:
-            if isinstance(ob, dict):
-                ob_code = ob.get('code', '')
-                obligations_with_status.append({**ob, 'status': db_obligations_map.get(ob_code, "PENDING")})
-            else:
-                obligations_with_status.append({"code": ob, "title": ob, "description": ob, "status": db_obligations_map.get(str(ob), "PENDING")})
+    #
+    # ENHANCED: Each obligation is enriched with remediation_context (article citations)
+    # via the module-level _enrich_obligation() function.
+
+    # Always load ALL obligations from DB so the frontend always gets current status.
+    # Previously this only loaded for HIGH risk, causing the sidebar to lose obligations on other turns.
+    all_db_obligations = db.query(Obligation).filter(Obligation.project_id == project.id).all()
+    obligations_with_status = [
+        _enrich_obligation({"code": ob.code, "title": ob.title, "description": ob.description or ob.title, "status": ob.status or "PENDING"})
+        for ob in all_db_obligations
+    ]
+    
+    # Parse workflow steps for the engine
+    current_workflow_steps = _parse_workflow_steps(fact_dict)
+    
+    # Load fact confidences from DB so the engine can verify uncertain facts
+    fact_confidences = {f.key: f.confidence for f in db_facts}
     
     bot_response = await engine.generate_next_question(
         fact_dict,
@@ -522,6 +594,9 @@ async def chat_interview(
         last_updated_fact_key=last_updated_fact_key,
         topic_ask_count=topic_ask_count,
         stuck_on_topic=stuck_on_topic,
+        conversation_history=history_text,
+        workflow_steps=current_workflow_steps,
+        fact_confidences=fact_confidences,
     )
     
     # 13. Log Bot Response
@@ -654,12 +729,12 @@ def get_project(
         "facts": fact_dict,
         "workflow_steps": _parse_workflow_steps(fact_dict),
         "obligations": [
-            {
+            _enrich_obligation({
                 "code": ob.code,
                 "title": ob.title,
                 "description": ob.description,
                 "status": ob.status
-            }
+            })
             for ob in obligations
         ]
     }
@@ -684,14 +759,26 @@ async def generate_report(
     facts = db.query(Fact).filter(Fact.project_id == project_id).all()
     obligations = db.query(Obligation).filter(Obligation.project_id == project_id).all()
     
-    # Build report data
+    # Calculate real compliance score from obligations
+    total = len(obligations) if obligations else 1
+    met = sum(1 for ob in obligations if (ob.status or "").strip().lower() in ("met", "planned_remediation", "planned"))
+    compliance_score = int((met / total) * 100) if total > 0 else 0
+
+    # Build report data with full context for the comprehensive report
     report_data = {
         "model_tested": project.name,
+        "description": project.description,
         "risk_level": project.risk_level,
-        "compliance_score": 85 if project.risk_level == "LIMITED" else (75 if project.risk_level == "HIGH" else 90),
+        "compliance_score": compliance_score,
+        "compliance_status": project.compliance_status,
+        "interview_state": project.interview_state,
         "metric_breakdown": [
-            {"name": "Risk Classification", "score": 100 if project.risk_level else 0},
-            {"name": "State Machine Completion", "score": 100 if project.interview_state == "ASSESSMENT" else 50},
+            {
+                "name": ob.title or ob.code,
+                "score": 100 if (ob.status or "").strip().lower() in ("met", "planned_remediation", "planned")
+                    else (50 if (ob.status or "").strip().lower() == "under_review" else 0),
+            }
+            for ob in obligations
         ],
         "details": [],
         "obligations": [
@@ -699,11 +786,11 @@ async def generate_report(
                 "code": ob.code,
                 "title": ob.title,
                 "description": ob.description,
-                "status": ob.status
+                "status": ob.status,
             }
             for ob in obligations
         ],
-        "facts": {f.key: f.value for f in facts}
+        "facts": {f.key: f.value for f in facts},
     }
     
     try:

@@ -43,6 +43,7 @@ export function GovernanceChat() {
     title: string;
     description: string;
     status: string;
+    remediation_context?: string;
   }>>([]);
   const [currentState, setCurrentState] = useState<string>("INIT");
   const [confidence, setConfidence] = useState<string>("LOW");
@@ -203,8 +204,8 @@ export function GovernanceChat() {
       setMessages(loadedMessages);
       setRiskLevel(data.project.risk_level || "Unknown");
       setFacts(data.facts || {});
-      setObligations((data.obligations || []).map((ob: { code?: string; title?: string; description?: string; status?: string } | string) =>
-        typeof ob === 'string' ? { code: ob, title: ob, description: '', status: '' } : { code: ob.code || '', title: ob.title ?? ob.code ?? '', description: (ob as { description?: string }).description ?? '', status: (ob as { status?: string }).status ?? '' }
+      setObligations((data.obligations || []).map((ob: { code?: string; title?: string; description?: string; status?: string; remediation_context?: string } | string) =>
+        typeof ob === 'string' ? { code: ob, title: ob, description: '', status: '' } : { code: ob.code || '', title: ob.title ?? ob.code ?? '', description: (ob as { description?: string }).description ?? '', status: (ob as { status?: string }).status ?? '', remediation_context: (ob as { remediation_context?: string }).remediation_context }
       ));
       setCurrentState(data.project.interview_state || "INIT");
       setConfidence(data.project.confidence_level || "LOW");
@@ -340,8 +341,8 @@ export function GovernanceChat() {
       // Update Live Dashboard
       setRiskLevel(data.risk_level);
       setFacts(data.facts);
-      setObligations(Array.isArray(data.obligations) ? data.obligations.map((ob: { code?: string; title?: string; description?: string; status?: string } | string) =>
-        typeof ob === 'string' ? { code: ob, title: ob, description: '', status: '' } : { code: ob.code || '', title: ob.title ?? ob.code ?? '', description: ob.description ?? '', status: ob.status ?? '' }
+      setObligations(Array.isArray(data.obligations) ? data.obligations.map((ob: { code?: string; title?: string; description?: string; status?: string; remediation_context?: string } | string) =>
+        typeof ob === 'string' ? { code: ob, title: ob, description: '', status: '' } : { code: ob.code || '', title: ob.title ?? ob.code ?? '', description: ob.description ?? '', status: ob.status ?? '', remediation_context: ob.remediation_context }
       ) : []);
       setCurrentState(data.state || currentState);
       setConfidence(data.confidence || confidence);
@@ -704,7 +705,12 @@ export function GovernanceChat() {
                           <FileText className="h-4 w-4 text-blue-500 mt-1 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <div className="font-bold text-xs text-slate-700">{ob.code}</div>
-                            <div className="text-[10px] text-slate-500">Required by Law</div>
+                            <div className="text-[10px] text-slate-500">{ob.title || 'Required by Law'}</div>
+                            {ob.remediation_context && (
+                              <div className="text-[10px] text-blue-600 mt-0.5 italic truncate" title={ob.remediation_context}>
+                                {ob.remediation_context}
+                              </div>
+                            )}
                             {ob.status && (
                               <span className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${statusClass}`}>
                                 {statusLabel}

@@ -1,6 +1,13 @@
 # backend/core/eu_ai_act_context.py
-# Short excerpts from EU AI Act for RAG-style injection into expert consultation prompts.
-# Use to explain legal requirements when the user's answer is insufficient or vague.
+"""
+EU AI Act context retrieval for expert consultation prompts.
+Now uses the TF-IDF vector store for full regulation coverage.
+Falls back to hardcoded excerpts if the articles JSON is not available.
+"""
+
+from core.vector_store import query_by_topic, query_articles, is_populated
+
+# --- Legacy hardcoded excerpts (fallback) ---
 
 EU_AI_ACT_ARTICLE_14 = """
 Article 14 – Human oversight (EU AI Act 2025)
@@ -22,7 +29,7 @@ Article 12 – Record-keeping (EU AI Act 2025)
 Providers of high-risk AI systems shall keep logs of the operation of their systems. The logging shall be such as to ensure traceability and enable post-market monitoring and other enforcement. Records shall be kept for a period appropriate to the intended purpose and the nature of the system, and in any case for at least six months unless otherwise required by Union or national law.
 """
 
-ARTICLE_CONTEXT_BY_TOPIC = {
+_FALLBACK_CONTEXT = {
     "human_oversight": EU_AI_ACT_ARTICLE_14,
     "data_governance": EU_AI_ACT_ARTICLE_10,
     "accuracy_robustness": EU_AI_ACT_ARTICLE_15,
@@ -31,5 +38,31 @@ ARTICLE_CONTEXT_BY_TOPIC = {
 
 
 def get_article_context_for_topic(topic_key: str) -> str:
-    """Return RAG context (law excerpt) for the given mandatory topic."""
-    return ARTICLE_CONTEXT_BY_TOPIC.get(topic_key, "").strip()
+    """
+    Return legal context for a given compliance topic.
+    Uses RAG vector store if available; falls back to hardcoded excerpts.
+    """
+    if is_populated():
+        context = query_by_topic(topic_key, n_results=3)
+        if context:
+            return context
+
+    # Fallback to hardcoded excerpts
+    return _FALLBACK_CONTEXT.get(topic_key, "").strip()
+
+
+def get_article_context_for_query(query: str, n_results: int = 3) -> str:
+    """
+    Return legal context for an arbitrary query string.
+    This enables the bot to answer any EU AI Act question, not just
+    the 4 mandatory high-risk topics.
+    """
+    if is_populated():
+        results = query_articles(query, n_results=n_results)
+        if results:
+            chunks = []
+            for r in results:
+                header = f"[{r['article']}] {r['title']}" if r['title'] else r['article']
+                chunks.append(f"{header}\n{r['text']}")
+            return "\n\n---\n\n".join(chunks)
+    return ""

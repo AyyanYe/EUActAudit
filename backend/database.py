@@ -1,14 +1,29 @@
 # backend/database.py
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, Integer, String, JSON, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 
-# New DB file to avoid conflicts with the old one
-DATABASE_URL = "sqlite:///./eu_ai_act_2025.db"
+load_dotenv()
+
+# Database URL: use DATABASE_URL env var for Neon/PostgreSQL, fallback to SQLite
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./eu_ai_act_2025.db")
 
 Base = declarative_base()
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+
+# SQLite requires check_same_thread=False; PostgreSQL does not need it
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=True,        # test connections before use (fixes Neon idle disconnects)
+    pool_recycle=300,           # recycle connections every 5 minutes
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 class Project(Base):
@@ -102,6 +117,26 @@ class InterviewLog(Base):
     
     project = relationship("Project", back_populates="logs")
     workflow = relationship("Workflow", back_populates="logs")
+
+
+# ===== Audit tables (consolidated from separate audit_records.db) =====
+
+class AuditRun(Base):
+    """
+    Records of bias/fairness audits run against AI models.
+    Previously stored in a separate audit_records.db SQLite file.
+    """
+    __tablename__ = "audit_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    model = Column(String)
+    risk_level = Column(String)
+    score = Column(Integer)
+    details = Column(Text)  # JSON string
+    user_id = Column(String, index=True, default="anonymous")
+    system_prompt = Column(Text)
+    timestamp = Column(String)  # ISO format string
+
 
 # Initialization Logic
 def init_db():

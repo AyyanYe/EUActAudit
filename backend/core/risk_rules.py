@@ -92,16 +92,31 @@ def evaluate_compliance_state(facts: dict):
         # Determine Role-Based Obligations (Provider vs Deployer)
         role = facts.get("role", "unknown").lower()
         
+        # Common obligations for ALL high-risk systems (both provider and deployer)
+        obligations.extend([
+            {"code": "ART_15", "title": "Accuracy & Robustness", "desc": "System must meet accuracy, robustness, and cybersecurity requirements under Article 15."},
+            {"code": "ART_12", "title": "Record Keeping", "desc": "System must automatically log operations and decisions under Article 12."},
+        ])
+        
         if role == "provider" or role == "builder":
             obligations.extend([
                 {"code": "ART_16", "title": "Quality Management System", "desc": "Implement a QMS compliant with Art 17."},
                 {"code": "ART_43", "title": "Conformity Assessment", "desc": "Must undergo conformity assessment before deployment."},
-                {"code": "ART_10", "title": "Data Governance", "desc": "Training data must be relevant, representative, and free of errors."}
+                {"code": "ART_10", "title": "Data Governance", "desc": "Training data must be relevant, representative, and free of errors."},
             ])
+            # Providers must DESIGN systems with human oversight capability (Article 14).
+            if facts.get("human_oversight") in ["no", "absent", "partial"] or facts.get("automation") == "fully_automated":
+                warnings.append("Article 14: Providers must design high-risk systems to allow effective human oversight by deployers.")
+                obligations.append({
+                    "code": "ART_14_OVERSIGHT", 
+                    "title": "Human Oversight by Design", 
+                    "desc": "Providers must design the system so deployers can implement effective human oversight — including the ability to override or halt AI decisions."
+                })
         elif role == "deployer" or role == "user":
             obligations.extend([
                 {"code": "ART_26", "title": "Human Oversight", "desc": "Ensure human overseers are trained and have authority to stop the system."},
-                {"code": "ART_26_LOGS", "title": "Monitoring & Logging", "desc": "Keep logs of operation for at least 6 months."}
+                {"code": "ART_26_LOGS", "title": "Monitoring & Logging", "desc": "Keep logs of operation for at least 6 months."},
+                {"code": "ART_10", "title": "Data Governance", "desc": "Input data must be relevant and representative for the system's intended purpose."},
             ])
             
             # Check for missing or insufficient human oversight (critical compliance gap). Article 14: "partial" and "absent" are non-compliant.

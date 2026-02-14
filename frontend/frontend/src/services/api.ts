@@ -95,7 +95,7 @@ export const GovernanceService = {
       project_id: projectId,
       message: message,
       workflow_id: workflowId || null
-    }, { headers, timeout: 10000 });
+    }, { headers, timeout: 60000 }); // 60s timeout — LLM responses can take 15-30s
     return response.data; // Returns { response, risk_level, facts, obligations, state, confidence, state_description }
   },
 

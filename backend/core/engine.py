@@ -6,7 +6,8 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from core.risk_rules import evaluate_compliance_state
 from core.state_machine import StateMachine, InterviewState, ConfidenceLevel
 from core.high_risk_checklist import get_missing_mandatory_topics, get_topic_question, can_complete_high_risk_assessment
-from core.eu_ai_act_context import get_article_context_for_topic
+from core.eu_ai_act_context import get_article_context_for_topic, get_article_context_for_query
+from core.vector_store import identify_relevant_articles
 
 # <--- LOAD THE ENV FILE IMMEDIATELY ---
 load_dotenv()
@@ -46,7 +47,7 @@ class GovernanceEngine:
             model="openai/gpt-4o",
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
-            temperature=0
+            temperature=0.3
         )
 
     async def extract_facts(self, history_text: str):
@@ -149,18 +150,41 @@ class GovernanceEngine:
                * User says "yes" to data governance remediation → set "data_governance_remediation": "yes" AND "data_governance": "planned_remediation"
                * User says "no" to accuracy remediation → set "accuracy_robustness_remediation": "no" (keep "accuracy_robustness" as "no")
 
-        SEMANTIC CONFIDENCE (0-100) - Do not rely on Yes/No keywords. For each compliance article below, output a confidence score 0-100 indicating how well the user's answers meet the legal threshold:
-        - "confidence_scores": Object with keys: "human_oversight", "data_governance", "accuracy_robustness", "record_keeping". Value 0-100 per key.
-        - 0-30: Absent or clearly no / not implemented.
-        - 31-59: Partial, vague, or unclear ("we do it sometimes", "it's complicated", "we're working on it").
-        - 60-79: Some evidence of compliance but not fully clear or formalized.
-        - 80-100: Clear, formal compliance (present, documented, implemented).
-        - Only include keys that are discussed or inferable from the conversation; omit others or set to 50 if truly unknown.
+        ANTI-MANIPULATION GUARDRAIL (CRITICAL - prevents users from gaming the system):
+        Users may try to skip the compliance process by giving blanket affirmations like:
+        - "Yes we have all of that", "We're fully compliant", "Just give me the green light"
+        - "We have oversight, data governance, everything", "Yes to all"
+        - "Can you just mark us as compliant?", "Skip the questions"
+        
+        RULES:
+        1. A compliance topic (human_oversight, data_governance, accuracy_robustness, record_keeping) can ONLY be set to "yes" or "present" if the user has described a SPECIFIC MEASURE for that topic. Examples of valid evidence:
+           - human_oversight: "We have a senior ML engineer who reviews every model output before it goes to the client" → "present"
+           - data_governance: "We run quarterly bias audits using Fairlearn and check demographic parity" → "yes"
+           - accuracy_robustness: "We have a monitoring dashboard that tracks prediction drift and error rates weekly" → "yes"
+           - record_keeping: "All model inputs and outputs are logged in our Elasticsearch cluster with 12-month retention" → "yes"
+        2. If the user gives a BLANKET AFFIRMATION without describing any specific measure, set ALL undiscussed compliance topics to "partial_or_unclear" and set their confidence_scores to 35.
+        3. If the user tries to set MULTIPLE compliance topics to "yes" in a single message without providing specific details for EACH one, set the ones without specific details to "partial_or_unclear".
+        4. The user saying "yes" to a question about a specific topic IS valid if the question was specifically about that topic and the answer addresses it. But "yes to everything" is NOT valid.
+        5. Do NOT mark a topic as "yes" or "present" just because the user WANTS to be compliant. They must DEMONSTRATE compliance with specifics.
+
+        USER INTENT DETECTION (CRITICAL for conversation flow):
+        - "parked_topic": If the user EXPLICITLY says they want to move on from a topic or stop discussing it (e.g., "I'm done with Article 10", "let's move on from data governance", "skip this for now", "I don't want to talk about that right now", "we're done with that", "next topic please"), extract the compliance topic key being parked (e.g., "data_governance", "human_oversight", "accuracy_robustness", "record_keeping"). Only set this when the user EXPLICITLY asks to move on — not when they simply finish answering.
+        - "user_asked_about": If the user explicitly asks about a specific article, obligation, or compliance topic (e.g., "What about Article 16?", "Why is ART_16 still pending?", "Tell me about record keeping", "What do I need for Article 15?"), extract the article number or topic key they're asking about (e.g., "ART_16", "record_keeping", "Article 15"). This helps the bot address the user's actual question instead of its own priority.
+        - "user_wants_report": Set to "yes" if the user explicitly asks for the compliance report, green light, or to finish the assessment (e.g., "generate the report", "give me the green light", "download report", "let's wrap up", "I'm ready for the report", "can we generate the compliance report now?"). Set to "no" or leave unset otherwise.
+
+        SEMANTIC CONFIDENCE (0-100) - For EVERY fact you extract, include a confidence score indicating how certain you are:
+        - "confidence_scores": Object with a score for EACH key you extract. Value 0-100.
+        - 90-100: User stated this explicitly and clearly (e.g., "We are in recruitment" → domain: 100).
+        - 70-89: Strongly implied or inferable from context (e.g., user describes building the tool → role: 80).
+        - 50-69: Partially mentioned or somewhat unclear.
+        - 30-49: Vague, informal, or ambiguous (e.g., "we do it sometimes" for a compliance topic → 35).
+        - 0-29: Guessed / very low confidence.
+        - IMPORTANT: Include a score for EVERY key in your output, not just compliance topics. For example: domain, role, purpose, data_type, automation, context, human_oversight, data_governance, accuracy_robustness, record_keeping, transparency, etc.
 
         Return ONLY a raw JSON object. Do not invent facts. If unclear, ignore the key.
         Include "workflow_steps" as an array of strings whenever operational steps are mentioned or corrected.
-        Include "confidence_scores" as above for compliance articles when relevant.
-        Example: {"domain": "recruitment", "human_oversight": "partial_or_unclear", "confidence_scores": {"human_oversight": 35, "data_governance": 80}, "workflow_steps": ["Resume Input", "Keyword Scan"]}
+        Include "confidence_scores" with a score for every extracted key.
+        Example: {"domain": "recruitment", "role": "provider", "human_oversight": "partial_or_unclear", "confidence_scores": {"domain": 95, "role": 85, "human_oversight": 35, "data_governance": 80}, "workflow_steps": ["Resume Input", "Keyword Scan"]}
         """
         
         messages = [
@@ -197,23 +221,28 @@ class GovernanceEngine:
         last_updated_fact_key: str = None,
         topic_ask_count: dict = None,
         stuck_on_topic: str = None,
+        conversation_history: str = "",
+        workflow_steps: list = None,
+        fact_confidences: dict = None,
     ):
         """
-        The 'Interviewer': Decides what to ask next based on state machine and missing info.
-        Context-aware: prioritizes the topic the user just spoke about; only then looks for next gap in order.
-        Uses dialogue memory (topic_ask_count) and stuck detection to force multiple-choice or expert pivot.
+        Two-layer response generator:
+        1. Deterministic logic computes a compliance DIRECTIVE (what the LLM must address)
+        2. LLM generates a natural conversational response informed by the directive + conversation history
+
+        The LLM always generates the response. Only terminal events (UNACCEPTABLE ban,
+        Article 14 refusal) are hardcoded — and those are handled in interview.py, not here.
         """
         topic_ask_count = topic_ask_count or {}
         stuck_on_topic = stuck_on_topic or ""
+        workflow_steps = workflow_steps or []
+
         try:
-            # Import obligation mapper for universal gap detection
             from core.obligation_mapper import is_negative_value, is_planned_value
 
-            # Topic closed = do not ask again (sidebar shows planned_remediation / resolved)
+            # === CONSTANTS ===
             RESOLVED_STATUSES = ["present", "planned_remediation", "future_implementation", "mitigated", "planned", "met"]
-            # Filter out completed items: do not generate a question for these
             COMPLETED_OBLIGATION_STATUSES = ["present", "planned", "mitigated", "planned_remediation", "met"]
-
             HIGH_RISK_TOPIC_ORDER = ["human_oversight", "data_governance", "accuracy_robustness", "record_keeping"]
             FACT_KEY_TO_LABEL = {
                 "human_oversight": "Article 14 (Human Oversight)",
@@ -227,6 +256,14 @@ class GovernanceEngine:
                 "ART_15": "accuracy_robustness",
                 "ART_12": "record_keeping",
             }
+            ARTICLE_INFO = {
+                "human_oversight": {"article": "Article 14", "requirement": "human oversight", "short": "a human-in-the-loop review mechanism where designated personnel can override or halt AI decisions"},
+                "data_governance": {"article": "Article 10", "requirement": "data governance and bias mitigation", "short": "bias testing and data quality measures for training data"},
+                "accuracy_robustness": {"article": "Article 15", "requirement": "accuracy, robustness, and cybersecurity", "short": "error rate monitoring and security measures"},
+                "record_keeping": {"article": "Article 12", "requirement": "record keeping and logging", "short": "automatic logging of system operations and decisions"},
+            }
+
+            # === BUILD OBLIGATION STATUS MAP ===
             obligation_status_by_fact = {}
             if obligations:
                 for ob in obligations:
@@ -240,15 +277,12 @@ class GovernanceEngine:
                     if fk:
                         obligation_status_by_fact[fk] = status
 
-            # Addressed = do not ask again (status in ['present', 'planned'] or fact/resolution present)
-            ADDRESSED_STATUSES = ["present", "planned", "planned_remediation", "met", "mitigated"]
-
-            # Next-best: are all high-priority obligations completed? (then move to closing phase)
+            # === HELPER FUNCTIONS ===
             all_high_priority_completed = False
             if risk_level == "HIGH":
                 def _obligation_addressed(fk: str) -> bool:
                     status = obligation_status_by_fact.get(fk)
-                    if status in COMPLETED_OBLIGATION_STATUSES or status in ADDRESSED_STATUSES:
+                    if status in COMPLETED_OBLIGATION_STATUSES or status in RESOLVED_STATUSES:
                         return True
                     val = (facts.get(fk) or "").strip().lower()
                     if fk == "human_oversight":
@@ -257,7 +291,6 @@ class GovernanceEngine:
                 all_high_priority_completed = all(_obligation_addressed(fk) for fk in HIGH_RISK_TOPIC_ORDER)
 
             def _topic_resolved(fact_key: str, f: dict) -> bool:
-                """Topic is DONE for interview flow: present, planned, or obligation status in RESOLVED_STATUSES."""
                 if obligation_status_by_fact.get(fact_key) in RESOLVED_STATUSES:
                     return True
                 val = (f.get(fact_key) or "").strip().lower()
@@ -265,19 +298,7 @@ class GovernanceEngine:
                     return val in ["present", "planned"] or (f.get("remediation_accepted") or "").strip().lower() == "yes"
                 return val in ["yes", "present", "planned_remediation", "planned"] or (f.get(f"{fact_key}_remediation") or "").strip().lower() == "yes"
 
-            def _success_prefix_for_next_topic(next_fact_key: str) -> str:
-                """If user just accepted remediation (previous turn), confirm and introduce next topic."""
-                if not last_updated_fact_key or last_updated_fact_key == next_fact_key:
-                    return ""
-                if last_updated_fact_key not in HIGH_RISK_TOPIC_ORDER or next_fact_key not in HIGH_RISK_TOPIC_ORDER:
-                    return ""
-                if not _topic_resolved(last_updated_fact_key, facts):
-                    return ""
-                label = FACT_KEY_TO_LABEL.get(next_fact_key, next_fact_key.replace("_", " ").title())
-                return f"Understood. That mitigation plan is noted. Moving on to {label}...\n\n"
-
             def _topic_has_gap(fact_key: str, f: dict) -> bool:
-                """Topic still has a compliance gap (not resolved)."""
                 if _topic_resolved(fact_key, f):
                     return False
                 val = (f.get(fact_key) or "").strip().lower()
@@ -285,472 +306,655 @@ class GovernanceEngine:
                     return val in ["absent", "no", "partial"]
                 return val in ["absent", "no", ""]
 
-            # 1. CONTEXT-AWARE: If user just spoke about a topic and it still has a gap, address THAT topic only (no jump to Article 14).
-            # Skip canned question if we're stuck on this topic (let LLM do multiple-choice or pivot)
-            if risk_level == "HIGH" and last_updated_fact_key and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER:
-                if _topic_has_gap(last_updated_fact_key, facts) and stuck_on_topic != last_updated_fact_key:
-                    CRITICAL_OBLIGATIONS_ACTIVE = {
-                        "human_oversight": "⚠️ Critical Gap: Article 14 requires human oversight for high-risk systems. Your system is currently non-compliant. Can you implement a 'Human-in-the-loop' review step?",
-                        "data_governance": "⚠️ Critical Gap: Article 10 requires data governance and bias mitigation. Your training data must be representative. Can you implement bias testing?",
-                        "accuracy_robustness": "⚠️ Critical Gap: Article 15 requires accuracy monitoring. Can you implement performance logging?",
-                        "record_keeping": "⚠️ Critical Gap: Article 12 requires automatic logging. Can you enable system logs?",
-                    }
-                    msg = CRITICAL_OBLIGATIONS_ACTIVE.get(last_updated_fact_key)
-                    if msg:
-                        print(f"[CONTEXT-AWARE] Returning remediation for active topic: {last_updated_fact_key}")
-                        return msg
+            # === DETERMINE COMPLIANCE DIRECTIVE ===
+            # The directive tells the LLM what to do; the LLM decides HOW to say it.
+            directive = ""
+            directive_topic = None  # For targeted RAG context
+            workflow_str = " -> ".join(workflow_steps) if workflow_steps else ""
 
-            # 2. SEQUENTIAL GAP HANDLING: Filter out completed items (status present/planned/mitigated or fact yes/present).
-            if risk_level == "HIGH" and obligations:
+            # Track if previous topic was just resolved (for natural transitions)
+            just_resolved_topic = None
+            if last_updated_fact_key and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER:
+                if _topic_resolved(last_updated_fact_key, facts):
+                    just_resolved_topic = last_updated_fact_key
+
+            # --- PRIORITY -1: WORKFLOW GATHERING (when in WORKFLOW state) ---
+            if current_state == InterviewState.WORKFLOW:
+                if not workflow_steps or len(workflow_steps) < 2:
+                    domain = facts.get("domain", "their industry")
+                    purpose = facts.get("purpose", "their AI system")
+                    directive = (
+                        f"The user has described their AI system (domain: {domain}, purpose: {purpose}) "
+                        f"but we don't yet understand their operational workflow. "
+                        f"Ask them to walk you through their process step-by-step: "
+                        f"what data goes in, what the AI does with it, what decisions it makes, "
+                        f"and what happens to the output. We need to build a clear picture of their pipeline "
+                        f"so we can identify which EU AI Act articles apply at each step. "
+                        f"Be specific — ask about each stage and what role the AI plays at that stage. "
+                        f"For example: 'Can you walk me through the full pipeline? Starting from when data "
+                        f"enters your system to when a final decision or output is delivered.'"
+                    )
+                else:
+                    # Has some steps but may be incomplete
+                    directive = (
+                        f"The user has started describing their workflow: {workflow_str}. "
+                        f"Ask follow-up questions to flesh out any remaining steps. Specifically ask: "
+                        f"(1) Is this the complete sequence from start to finish? "
+                        f"(2) At which steps does the AI make decisions vs. a human? "
+                        f"(3) What happens to the output — does someone review it? "
+                        f"Once the workflow is confirmed as complete, acknowledge it and tell them "
+                        f"you'll now evaluate each step against the EU AI Act requirements."
+                    )
+                # Skip all other directive logic for WORKFLOW state
+
+            # --- PRIORITY -0.5: USER ASKED ABOUT A SPECIFIC TOPIC ---
+            # Respect user intent: if they explicitly ask about an article/obligation, address it.
+            if not directive:
+                user_asked = (facts.get("user_asked_about") or "").strip()
+                if user_asked:
+                    # Map common patterns to topic keys / labels
+                    asked_topic_map = {
+                        "ART_16": ("ART_16", "Article 16 (Quality Management System)"),
+                        "ART_43": ("ART_43", "Article 43 (Conformity Assessment)"),
+                        "ART_14": ("human_oversight", "Article 14 (Human Oversight)"),
+                        "ART_10": ("data_governance", "Article 10 (Data Governance)"),
+                        "ART_15": ("accuracy_robustness", "Article 15 (Accuracy & Robustness)"),
+                        "ART_12": ("record_keeping", "Article 12 (Record Keeping)"),
+                        "ART_50": ("transparency", "Article 50 (Transparency)"),
+                        "ART_26": ("ART_26", "Article 26 (Deployer Obligations)"),
+                        "Article 16": ("ART_16", "Article 16 (Quality Management System)"),
+                        "Article 43": ("ART_43", "Article 43 (Conformity Assessment)"),
+                        "Article 14": ("human_oversight", "Article 14 (Human Oversight)"),
+                        "Article 10": ("data_governance", "Article 10 (Data Governance)"),
+                        "Article 15": ("accuracy_robustness", "Article 15 (Accuracy & Robustness)"),
+                        "Article 12": ("record_keeping", "Article 12 (Record Keeping)"),
+                        "Article 50": ("transparency", "Article 50 (Transparency)"),
+                        "record_keeping": ("record_keeping", "Article 12 (Record Keeping)"),
+                        "data_governance": ("data_governance", "Article 10 (Data Governance)"),
+                        "human_oversight": ("human_oversight", "Article 14 (Human Oversight)"),
+                        "accuracy_robustness": ("accuracy_robustness", "Article 15 (Accuracy & Robustness)"),
+                    }
+                    matched = asked_topic_map.get(user_asked)
+                    if matched:
+                        topic_key, topic_label = matched
+                        # Check if we have an obligation for this
+                        ob_status = "unknown"
+                        if obligations:
+                            for ob in obligations:
+                                if isinstance(ob, dict) and (ob.get("code") == topic_key or ob.get("code") == user_asked):
+                                    ob_status = (ob.get("status") or "PENDING").strip().lower()
+                                    break
+                        fact_val = (facts.get(topic_key) or "not yet discussed").strip().lower()
+                        directive = (
+                            f"The user specifically asked about {topic_label}. Address their question directly. "
+                            f"Current status: obligation='{ob_status}', fact='{fact_val}'. "
+                            f"Explain what this article requires, what their current status means, and what "
+                            f"specific steps they need to take to move it from '{ob_status}' to compliant. "
+                            f"Be helpful and specific. After answering, you can return to the normal assessment flow."
+                        )
+                        if topic_key in HIGH_RISK_TOPIC_ORDER:
+                            directive_topic = topic_key
+
+            # --- PRIORITY -0.25: VERIFY LOW-CONFIDENCE FACTS ---
+            # Before using facts for compliance decisions, confirm any fact the system
+            # is unsure about.  Only fires in CHECKPOINT / ASSESSMENT states (during
+            # INTAKE / DISCOVERY facts are still being gathered, so it's too early).
+            if not directive and fact_confidences and current_state in [
+                InterviewState.CHECKPOINT, InterviewState.ASSESSMENT
+            ]:
+                from core.obligation_mapper import CONFIDENCE_THRESHOLD
+                _important_keys = [
+                    "domain", "role", "purpose", "data_type", "automation",
+                    "context", "human_oversight", "data_governance",
+                    "accuracy_robustness", "record_keeping", "transparency",
+                ]
+                _fact_descriptions = {
+                    "domain": "the industry / sector",
+                    "role": "whether they are a provider or deployer of the AI system",
+                    "purpose": "what the AI system is used for",
+                    "data_type": "what type of data the system processes",
+                    "automation": "the level of automation in decision-making",
+                    "context": "the deployment context",
+                    "human_oversight": "human oversight arrangements",
+                    "data_governance": "data governance practices",
+                    "accuracy_robustness": "accuracy and robustness measures",
+                    "record_keeping": "record-keeping procedures",
+                    "transparency": "transparency measures",
+                }
+                for _key in _important_keys:
+                    _val = facts.get(_key, "")
+                    _conf = fact_confidences.get(_key, 100)
+                    if _val and _conf < CONFIDENCE_THRESHOLD:
+                        _desc = _fact_descriptions.get(_key, _key)
+                        directive = (
+                            f"We recorded {_desc} as '{_val}' but our confidence is "
+                            f"low ({_conf}/100). Before proceeding with compliance "
+                            f"evaluation, naturally confirm this with the user. "
+                            f"Don't sound like you're re-asking from scratch — say "
+                            f"something like 'Just to make sure I have this right…' "
+                            f"or 'I want to double-check…' and ask about this ONE "
+                            f"fact only. Keep it brief and conversational."
+                        )
+                        directive_topic = _key
+                        break  # One verification per turn
+
+            # --- PRIORITY 0: Article 14 blocking (HIGH risk, clear absence only) ---
+            # Only fires when human oversight is clearly absent/no AND remediation hasn't been offered yet.
+            # "partial" and "partial_or_unclear" are handled by the sequential gap handler (which has
+            # stuck detection, pivot logic, and round-robin cycling to avoid zombie loops).
+            if not directive and risk_level == "HIGH":
+                human_oversight_state = facts.get("human_oversight", "").lower()
+                remediation_accepted = facts.get("remediation_accepted", "").lower()
+
+                if human_oversight_state in ["absent", "no"] and remediation_accepted == "":
+                    role = facts.get("role", "").lower()
+                    if role in ["provider", "builder"]:
+                        directive = (
+                            f"CRITICAL DESIGN GAP: The user's system has NO human oversight capability "
+                            f"(current state: '{human_oversight_state}'). As a PROVIDER of a high-risk system, "
+                            f"Article 14 of the EU AI Act requires them to DESIGN the system so that deployers "
+                            f"can implement effective human oversight — including the ability to override or halt "
+                            f"AI decisions. Ask whether the system is designed to allow human review at decision "
+                            f"points, and whether deployers can configure override mechanisms. "
+                            f"Be firm but helpful — this is a design requirement, not just operational."
+                        )
+                    else:
+                        directive = (
+                            f"CRITICAL COMPLIANCE GAP: The user's system has NO adequate human oversight "
+                            f"(current state: '{human_oversight_state}'). Article 14 of the EU AI Act REQUIRES "
+                            f"human oversight for high-risk systems — this means designated personnel who can "
+                            f"override or halt AI decisions. You must flag this as a compliance gap and ask "
+                            f"whether they can implement a human-in-the-loop review mechanism. Explain why this "
+                            f"matters for THEIR specific system (decisions affecting people need human accountability). "
+                            f"Be firm but helpful — this is non-negotiable for high-risk classification."
+                        )
+                    directive_topic = "human_oversight"
+                # NOTE: remediation_accepted == "no" → termination handled in interview.py
+                # NOTE: "partial", "partial_or_unclear" → handled by sequential gap handler below
+
+            # --- Context-aware: user just spoke about a topic with a gap ---
+            if not directive and risk_level == "HIGH" and last_updated_fact_key and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER:
+                if _topic_has_gap(last_updated_fact_key, facts) and stuck_on_topic != last_updated_fact_key:
+                    info = ARTICLE_INFO.get(last_updated_fact_key, {})
+                    fact_val = (facts.get(last_updated_fact_key) or "").strip().lower()
+                    workflow_ref = ""
+                    if workflow_steps:
+                        workflow_ref = (
+                            f" Their workflow is: {workflow_str}. "
+                            f"Reference which specific step(s) need {info.get('short', '')}."
+                        )
+                    directive = (
+                        f"The user just discussed {info.get('article', last_updated_fact_key)} "
+                        f"({info.get('requirement', '')}). Their current status is '{fact_val}', which "
+                        f"is a compliance gap.{workflow_ref} Address this conversationally — acknowledge what they said, "
+                        f"explain what {info.get('article', '')} requires ({info.get('short', '')}), and "
+                        f"ask if they can implement a remediation plan. Reference what they actually told you."
+                    )
+                    directive_topic = last_updated_fact_key
+
+            # --- Sequential gap handling for HIGH risk (ROUND-ROBIN with topic parking) ---
+            if not directive and risk_level == "HIGH" and obligations:
                 if all_high_priority_completed:
                     print("[CLOSING] All high-priority obligations are present/planned; moving to closing phase.")
                 else:
-                    for fact_key in HIGH_RISK_TOPIC_ORDER:
-                        ob_status = obligation_status_by_fact.get(fact_key)
-                        if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
-                            print(f"Skipping {FACT_KEY_TO_LABEL.get(fact_key, fact_key)} because status is {ob_status}")
-                            continue
-                        fact_value = (facts.get(fact_key) or "").strip().lower()
-                        if fact_value in ["yes", "present", "planned", "planned_remediation"]:
-                            print(f"Skipping {FACT_KEY_TO_LABEL.get(fact_key, fact_key)} because fact is '{fact_value}' (addressed).")
-                            continue
-                        if fact_value == "partial_or_unclear":
-                            print(f"[EXPERT] {FACT_KEY_TO_LABEL.get(fact_key, fact_key)} is partial_or_unclear; not repeating question—LLM will acknowledge, explain law, suggest improvement.")
-                            continue
-                        if fact_key == "human_oversight" and (facts.get("remediation_accepted") or "").strip().lower() == "yes":
-                            print(f"Skipping {FACT_KEY_TO_LABEL.get(fact_key, fact_key)} because remediation accepted (addressed).")
-                            continue
-                        remediation_key = "remediation_accepted" if fact_key == "human_oversight" else f"{fact_key}_remediation"
-                        remediation_value = (facts.get(remediation_key) or "").strip().lower()
-                        if is_planned_value(fact_value) or fact_value in ["planned_remediation", "planned"] or remediation_value == "yes":
-                            continue  # DONE - do not ask again
-                        if fact_key == "human_oversight" and fact_value in ["absent", "no", "partial"]:
-                            if remediation_value == "" and stuck_on_topic != "human_oversight":
-                                prefix = _success_prefix_for_next_topic("human_oversight")
-                                return prefix + "⚠️ Critical Gap: Article 14 requires human oversight for high-risk systems. Your system is currently non-compliant. Can you implement a 'Human-in-the-loop' review step?"
-                            break  # already asked or refused; Article 14 termination handled in router
-                        if fact_value in ["absent", "no"]:
-                            if stuck_on_topic == fact_key:
-                                break  # let LLM handle multiple-choice or pivot
-                            ob_info = {
-                                "data_governance": "⚠️ Critical Gap: Article 10 requires data governance and bias mitigation. Your training data must be representative. Can you implement bias testing?",
-                                "accuracy_robustness": "⚠️ Critical Gap: Article 15 requires accuracy monitoring. Can you implement performance logging?",
-                                "record_keeping": "⚠️ Critical Gap: Article 12 requires automatic logging. Can you enable system logs?",
-                            }
-                            if remediation_value == "" and fact_key in ob_info:
-                                prefix = _success_prefix_for_next_topic(fact_key)
-                                return prefix + ob_info[fact_key]
-                            break  # one topic at a time
-                # If we didn't return above, fall through to legacy obligation loop (for non-HIGH or other codes)
-            elif obligations:
+                    # ROUND-ROBIN: Start iteration after the last discussed topic (wrap around)
+                    # This ensures all topics get cycled through even if some are stuck
+                    parked_topic = (facts.get("parked_topic") or "").strip().lower()
+                    
+                    # Determine start index for round-robin
+                    start_idx = 0
+                    if last_updated_fact_key and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER:
+                        start_idx = (HIGH_RISK_TOPIC_ORDER.index(last_updated_fact_key) + 1) % len(HIGH_RISK_TOPIC_ORDER)
+                    
+                    # Build rotated order: start after last discussed topic, wrap around
+                    rotated_order = HIGH_RISK_TOPIC_ORDER[start_idx:] + HIGH_RISK_TOPIC_ORDER[:start_idx]
+                    
+                    # First pass: skip parked and auto-parked topics
+                    # Second pass (if needed): include parked topics
+                    for include_parked in [False, True]:
+                        if directive:
+                            break
+                        for fact_key in rotated_order:
+                            # TOPIC PARKING: skip parked topics on first pass
+                            is_parked = (parked_topic == fact_key)
+                            # AUTO-PARK: if asked 3+ times, treat as auto-parked
+                            ask_count = topic_ask_count.get(fact_key, 0)
+                            is_auto_parked = (ask_count >= 3)
+                            
+                            if not include_parked and (is_parked or is_auto_parked):
+                                continue
+                            
+                            ob_status = obligation_status_by_fact.get(fact_key)
+                            if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
+                                continue
+                            fact_value = (facts.get(fact_key) or "").strip().lower()
+                            if fact_value in ["yes", "present", "planned", "planned_remediation"]:
+                                continue
+                            if fact_key == "human_oversight" and (facts.get("remediation_accepted") or "").strip().lower() == "yes":
+                                continue
+                            remediation_key = "remediation_accepted" if fact_key == "human_oversight" else f"{fact_key}_remediation"
+                            remediation_value = (facts.get(remediation_key) or "").strip().lower()
+                            if is_planned_value(fact_value) or fact_value in ["planned_remediation", "planned"] or remediation_value == "yes":
+                                continue
+
+                            info = ARTICLE_INFO.get(fact_key, {})
+                            
+                            # Provider-specific framing for human oversight
+                            role = facts.get("role", "").lower()
+                            is_provider = role in ["provider", "builder"]
+
+                            if fact_value == "partial_or_unclear":
+                                if is_provider and fact_key == "human_oversight":
+                                    directive = (
+                                        f"The user's answer about human oversight design was vague ('{fact_value}'). "
+                                        f"As a PROVIDER, they need to design the system so deployers CAN implement oversight. "
+                                        f"Ask specifically: Does the system expose an API or UI for human review? "
+                                        f"Can deployers configure thresholds for automated vs. human decisions? "
+                                        f"Is there a 'stop' mechanism built in? Frame this as a design question."
+                                    )
+                                else:
+                                    directive = (
+                                        f"The user's answer about {info.get('requirement', fact_key)} was classified as "
+                                        f"vague/informal ('{fact_value}'). DO NOT repeat the question. Act as a consultant: "
+                                        f"acknowledge their effort, explain what {info.get('article', '')} specifically requires, "
+                                        f"and suggest a concrete improvement. Offer a 'Consultant's Suggestion' — what most "
+                                        f"companies in their position do."
+                                    )
+                                directive_topic = fact_key
+                                break
+
+                            if fact_value in ["absent", "no"]:
+                                if stuck_on_topic == fact_key or is_auto_parked:
+                                    # User is stuck or topic was auto-parked — pivot to next unresolved topic
+                                    next_topic = None
+                                    for nk in rotated_order:
+                                        if nk == fact_key:
+                                            continue
+                                        if not _topic_resolved(nk, facts) and topic_ask_count.get(nk, 0) < 3:
+                                            next_topic = nk
+                                            break
+                                    if next_topic:
+                                        next_info = ARTICLE_INFO.get(next_topic, {})
+                                        directive = (
+                                            f"The user is STUCK on {info.get('article', fact_key)} (asked "
+                                            f"{ask_count} times, still unresolved). "
+                                            f"DO NOT ask the same question again. Either: "
+                                            f"(A) Offer 3 concrete multiple-choice options they can pick from, OR "
+                                            f"(B) Pivot to {next_info.get('article', next_topic)} "
+                                            f"({next_info.get('requirement', '')}) and say you'll circle back. "
+                                            f"Make the transition feel natural."
+                                        )
+                                    else:
+                                        directive = (
+                                            f"The user is STUCK on {info.get('article', fact_key)} (asked "
+                                            f"{ask_count} times). Offer 3 concrete "
+                                            f"multiple-choice options: A) a specific implementation approach, "
+                                            f"B) an alternative approach, C) note the gap and move forward."
+                                        )
+                                    directive_topic = fact_key
+                                    break
+
+                                if remediation_value == "":
+                                    # First time flagging this gap
+                                    transition = ""
+                                    if just_resolved_topic:
+                                        prev_info = ARTICLE_INFO.get(just_resolved_topic, {})
+                                        transition = (
+                                            f"The user just resolved {prev_info.get('article', '')} — "
+                                            f"briefly acknowledge that before moving on. "
+                                        )
+                                    workflow_ref = ""
+                                    if workflow_steps:
+                                        workflow_ref = (
+                                            f" Their workflow is: {workflow_str}. "
+                                            f"Reference which specific step(s) need {info.get('short', '')}."
+                                        )
+                                    if is_provider and fact_key == "human_oversight":
+                                        directive = (
+                                            f"{transition}The user's system does NOT currently support human oversight "
+                                            f"(fact '{fact_key}' = '{fact_value}'). As a PROVIDER, Article 14 requires "
+                                            f"them to DESIGN the system so deployers can implement oversight.{workflow_ref} "
+                                            f"Ask: Does the system allow a human to review decisions before they're final? "
+                                            f"Can deployers configure override points? Is there a stop/halt mechanism? "
+                                            f"Frame this as a design/architecture question, not an operational one."
+                                        )
+                                    else:
+                                        directive = (
+                                            f"{transition}The user indicated they do NOT have "
+                                            f"{info.get('requirement', '')} (fact '{fact_key}' = '{fact_value}'). "
+                                            f"This is a compliance gap under {info.get('article', '')}.{workflow_ref} Explain why "
+                                            f"this matters for their specific system, then ask conversationally whether "
+                                            f"they have plans to implement {info.get('short', '')} or if there's a "
+                                            f"reason it's not in place. Be understanding, not accusatory."
+                                        )
+                                    directive_topic = fact_key
+                                    break
+                                break  # One topic at a time
+
+            # --- Non-HIGH risk obligation gaps ---
+            if not directive and risk_level != "HIGH" and obligations:
                 for obligation in obligations:
-                    # Handle both dict and string format obligations
                     if isinstance(obligation, dict):
-                        ob_code = obligation.get('code', '')
-                        ob_title = obligation.get('title', 'Unknown')
-                        ob_status = (obligation.get('status') or 'PENDING').strip().lower()
+                        ob_code = obligation.get("code", "")
+                        ob_title = obligation.get("title", "Unknown")
+                        ob_status = (obligation.get("status") or "PENDING").strip().lower()
                     else:
                         ob_code = str(obligation)
                         ob_title = ob_code
-                        ob_status = 'pending'
-                    # Filter out completed items: do not generate a question for present/planned/mitigated
+                        ob_status = "pending"
+
                     if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
-                        print(f"Skipping {ob_title} because status is {ob_status}")
                         continue
-                    # Check if this obligation has a gap_detected status
+
                     if ob_status == "gap_detected":
-                        # Find corresponding fact key
-                        fact_key = None
                         fact_to_ob_map = {
                             "human_oversight": "ART_14_OVERSIGHT",
                             "data_governance": "ART_10",
                             "accuracy_robustness": "ART_15",
                             "record_keeping": "ART_12",
                             "transparency": "ART_50",
-                            "article_50_notice": "ART_50"
+                            "article_50_notice": "ART_50",
                         }
+                        fact_key = None
                         for fk, oc in fact_to_ob_map.items():
                             if oc == ob_code:
                                 fact_key = fk
                                 break
-                        
+
                         if fact_key:
+                            fact_value = facts.get(fact_key, "").lower()
                             remediation_key = f"{fact_key}_remediation"
                             remediation_value = facts.get(remediation_key, "").lower()
-                            fact_value = facts.get(fact_key, "").lower()
-                            if fact_value in ["yes", "present"]:
-                                print(f"Skipping {ob_title} because fact is '{fact_value}' (completed).")
-                                continue
-                            if is_planned_value(fact_value) or remediation_value == "yes":
-                                continue
-                            
-                            # If remediation not yet asked, ask it
-                            if not remediation_value:
-                                # Dynamic warning generation - works for ANY obligation
-                                article_num = ob_code.replace("ART_", "").replace("_", " ")
-                                return f"⚠️ Critical Gap Detected: {ob_title} is mandatory for {risk_level} risk systems. You answered that this is absent. You cannot proceed without it. Can you implement a remediation measure?"
-                            elif remediation_value == "no":
-                                # User refused remediation - log gap but continue (except Article 14 which terminates)
-                                if ob_code == "ART_14_OVERSIGHT":
-                                    # Article 14 termination handled separately in interview.py
-                                    continue
-                                # For other obligations, continue assessment with gap noted
-                                continue
-            
-            # LEGACY: CRITICAL OBLIGATIONS MAP - Keep for backward compatibility
-            # Maps fact keys to their required state and remediation questions
-            CRITICAL_OBLIGATIONS = {
-                "human_oversight": {
-                    "article": "Article 14",
-                    "requirement": "human oversight",
-                    "remediation_question": "⚠️ Critical Gap: Article 14 requires human oversight for high-risk systems. Your system is currently non-compliant. Can you implement a 'Human-in-the-loop' review step?",
-                    "remediation_key": "remediation_accepted"  # Special key for Article 14
-                },
-                "data_governance": {
-                    "article": "Article 10",
-                    "requirement": "data governance and bias mitigation",
-                    "remediation_question": "⚠️ Critical Gap: Article 10 requires data governance and bias mitigation. Your training data must be representative. Can you implement bias testing?",
-                    "remediation_key": "data_governance_remediation"
-                },
-                "accuracy_robustness": {
-                    "article": "Article 15",
-                    "requirement": "accuracy monitoring",
-                    "remediation_question": "⚠️ Critical Gap: Article 15 requires accuracy monitoring. Can you implement performance logging?",
-                    "remediation_key": "accuracy_robustness_remediation"
-                },
-                "record_keeping": {
-                    "article": "Article 12",
-                    "requirement": "automatic logging",
-                    "remediation_question": "⚠️ Critical Gap: Article 12 requires automatic logging. Can you enable system logs?",
-                    "remediation_key": "record_keeping_remediation"
-                }
-            }
-            
-            # UNIVERSAL BLOCKING MECHANISM - Skip if obligation status is present/planned/mitigated or fact is yes/present.
-            if risk_level == "HIGH" and not all_high_priority_completed:
-                for fact_key in HIGH_RISK_TOPIC_ORDER:
-                    ob_status = obligation_status_by_fact.get(fact_key)
-                    if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
-                        print(f"Skipping {FACT_KEY_TO_LABEL.get(fact_key, fact_key)} because status is {ob_status}")
-                        continue
-                    obligation_info = CRITICAL_OBLIGATIONS.get(fact_key)
-                    if not obligation_info:
-                        continue
-                    fact_value = (facts.get(fact_key) or "").strip().lower()
-                    if fact_value in ["yes", "present", "planned", "planned_remediation"]:
-                        print(f"Skipping {FACT_KEY_TO_LABEL.get(fact_key, fact_key)} because fact is '{fact_value}' (addressed).")
-                        continue
-                    if fact_value == "partial_or_unclear":
-                        continue
-                    if fact_key == "human_oversight" and (facts.get("remediation_accepted") or "").strip().lower() == "yes":
-                        print(f"Skipping {FACT_KEY_TO_LABEL.get(fact_key, fact_key)} because remediation accepted (addressed).")
-                        continue
-                    remediation_key = obligation_info["remediation_key"]
-                    remediation_value = (facts.get(remediation_key) or "").strip().lower()
-                    if remediation_value == "yes":
-                        continue
-                    is_negative = fact_value in ["absent", "no"] or (fact_key == "human_oversight" and fact_value == "partial")
-                    if not is_negative:
-                        continue
-                    if fact_key == "human_oversight":
-                        continue  # Article 14 handled in sequential block and in prompt
-                    if remediation_value == "" and stuck_on_topic != fact_key:
-                        print(f"[BLOCKING] {obligation_info['article']} blocking activated for {fact_key}")
-                        prefix = _success_prefix_for_next_topic(fact_key)
-                        return prefix + obligation_info["remediation_question"]
-                    break  # One topic at a time; rest handled in prompt
-            
-            state_desc = StateMachine.get_state_description(current_state)
-            confidence_msg = StateMachine.get_confidence_message(confidence, risk_level)
-            
-            # Build context about what we're looking for
-            missing_context = ""
-            if missing_facts:
-                fact_descriptions = {
-                    "domain": "the area or industry where this AI system is used",
-                    "role": "whether you are building this system (provider) or using an existing one (deployer)",
-                    "purpose": "the specific goal or task this AI system performs",
-                    "data_type": "what kind of data the system processes (personal, biometric, anonymous)",
-                    "automation": "whether decisions are fully automated or have human oversight",
-                    "context": "where the system is deployed (workplace, public space, school, etc.)",
-                    "human_oversight": "whether human reviewers check the AI's decisions before they take effect"
-                }
-                missing_context = ", ".join([fact_descriptions.get(key, key) for key in missing_facts[:2]])
 
-            # Check for prohibited practices that need exemption probe
-            needs_exemption_probe = risk_level == "PENDING_PROHIBITED"
-            
-            # Check if transparency is already confirmed for LIMITED risk (prevent loops)
-            transparency_confirmed = False
-            if risk_level == "LIMITED":
-                transparency_status = facts.get("transparency", "").lower()
-                article_50_status = facts.get("article_50_notice", "").lower()
-                if transparency_status == "present" or article_50_status == "yes":
-                    transparency_confirmed = True
-            
-            # Check for missing mandatory topics for HIGH risk systems
-            missing_mandatory_topics = []
-            high_risk_complete = False
-            report_ready = False  # All obligations addressed (Art 14, 10, 15, 12) → suggest compliance report
-            if risk_level == "HIGH":
-                obligations_list = obligations if obligations else []
-                missing_mandatory_topics = get_missing_mandatory_topics(facts, obligations_list)
-                high_risk_complete = can_complete_high_risk_assessment(facts, obligations_list)
-                report_ready = all_high_priority_completed and (current_state == InterviewState.ASSESSMENT or high_risk_complete)
-            
-            # Check for critical compliance gaps (only if not UNACCEPTABLE)
-            compliance_gaps = []
-            if risk_level == "HIGH":
-                # Only add compliance gap if not already blocking (Article 14 guardrail handles it)
-                article_14_blocking_check = facts.get("human_oversight", "").lower() in ["absent", "no", "partial"]
-                if article_14_blocking_check and facts.get("automation") == "fully_automated":
-                    compliance_gaps.append("CRITICAL: High-risk systems require human oversight under Article 14. Fully automated decisions without human review violate compliance requirements.")
-                if facts.get("special_category_data") == "yes" and facts.get("data_type") != "sensitive_personal":
-                    compliance_gaps.append("WARNING: System processes special category personal data (ethnic origin, health, etc.) which requires enhanced protections.")
-                # Flag "no" answers for mandatory topics as compliance gaps (but don't keep asking)
-                if facts.get("data_governance") in ["no", "absent"]:
-                    compliance_gaps.append("COMPLIANCE GAP: Data governance measures (bias mitigation, training data quality) are required under Article 10 for high-risk systems.")
-                if facts.get("accuracy_robustness") in ["no", "absent"]:
-                    compliance_gaps.append("COMPLIANCE GAP: Accuracy, robustness, and security monitoring are required under Article 15 for high-risk systems.")
-                if facts.get("record_keeping") in ["no", "absent"]:
-                    compliance_gaps.append("COMPLIANCE GAP: Record keeping and logging are required under Article 12 for high-risk systems.")
-            
-            # COMPLIANCE GUARDRAIL - Article 14 Human Oversight Blocking Logic (RUNS FIRST)
-            # This check must run BEFORE any other question logic to catch critical non-compliance
-            article_14_blocking = False
-            remediation_question_asked = False
-            remediation_response = None
-            
-            if risk_level == "HIGH":
-                human_oversight_state = facts.get("human_oversight", "").lower()
-                remediation_accepted = facts.get("remediation_accepted", "").lower()
+                            if fact_value in ["yes", "present"] or is_planned_value(fact_value) or remediation_value == "yes":
+                                continue
+
+                            if not remediation_value:
+                                directive = (
+                                    f"A compliance gap was detected for {ob_title} (obligation {ob_code}). "
+                                    f"The user's current status is '{fact_value}'. Explain what this obligation "
+                                    f"requires, why it matters for their system, and ask whether they can "
+                                    f"implement a remediation measure. Be conversational and helpful."
+                                )
+                                directive_topic = fact_key
+                                break
+
+            # --- State-aware directives (when no gap-specific directive was generated) ---
+            if not directive:
+                needs_exemption_probe = risk_level == "PENDING_PROHIBITED"
+
+                transparency_confirmed = False
+                if risk_level == "LIMITED":
+                    if facts.get("transparency", "").lower() == "present" or facts.get("article_50_notice", "").lower() == "yes":
+                        transparency_confirmed = True
+
+                missing_mandatory_topics = []
+                high_risk_complete = False
+                report_ready = False
+                if risk_level == "HIGH":
+                    obligations_list = obligations or []
+                    missing_mandatory_topics = get_missing_mandatory_topics(facts, obligations_list)
+                    high_risk_complete = can_complete_high_risk_assessment(facts, obligations_list)
+                    report_ready = all_high_priority_completed and (current_state == InterviewState.ASSESSMENT or high_risk_complete)
+
+                # --- Report blocker explanation ---
+                # If the user explicitly asks for the report but topics are unresolved,
+                # explain exactly what's blocking instead of deflecting.
+                user_wants_report = (facts.get("user_wants_report") or "").strip().lower() == "yes"
+                if user_wants_report and risk_level == "HIGH" and not report_ready:
+                    blocking_topics = [fk for fk in HIGH_RISK_TOPIC_ORDER if not _topic_resolved(fk, facts)]
+                    if blocking_topics:
+                        blocking_labels = [FACT_KEY_TO_LABEL.get(fk, fk) for fk in blocking_topics]
+                        directive = (
+                            f"The user is asking for the Compliance Report, but {len(blocking_topics)} topic(s) "
+                            f"still need resolution before we can generate it: {', '.join(blocking_labels)}. "
+                            f"Explain clearly and concisely which specific topics are blocking the report and "
+                            f"what evidence is needed for each. For each blocking topic, state what the user needs "
+                            f"to provide (e.g., 'For Article 15, we need to know how you monitor error rates'). "
+                            f"Be empathetic — acknowledge they want to move forward — but firm about requirements. "
+                            f"Suggest addressing the easiest/quickest topic first to make progress."
+                        )
                 
-                # Check if human oversight is absent, partial, or vague (partial_or_unclear). Article 14: partial = non-compliant; partial_or_unclear = expert guidance, no repeat.
-                if human_oversight_state in ["absent", "no", "partial", "partial_or_unclear"]:
-                    article_14_blocking = True
-                    # Check if we've already asked the remediation question
-                    if remediation_accepted == "":
-                        remediation_question_asked = True  # Need to ask remediation question
-                    elif remediation_accepted == "no":
-                        # User refused remediation - TERMINATE
-                        article_14_blocking = True  # Keep blocking
-                        remediation_response = "refused"
-                    elif remediation_accepted == "yes":
-                        article_14_blocking = False
-                        remediation_response = "accepted"
-                    elif human_oversight_state == "partial_or_unclear":
-                        article_14_blocking = True
-                        remediation_response = "partial_or_unclear"
-            
-            # Extract blocked message from warnings if UNACCEPTABLE
-            blocked_message = ""
-            if risk_level == "UNACCEPTABLE" and warnings:
-                for warning in warnings:
-                    if "BLOCKED:" in warning:
-                        blocked_message = warning.replace("BLOCKED:", "").strip()
+                if not directive and risk_level == "UNACCEPTABLE":
+                    blocked_message = ""
+                    if warnings:
+                        for w in warnings:
+                            if "BLOCKED:" in str(w):
+                                blocked_message = str(w).replace("BLOCKED:", "").strip()
+                                break
+                    directive = (
+                        f"This system has been classified as PROHIBITED under Article 5 of the EU AI Act. "
+                        f"{blocked_message if blocked_message else 'The use case is illegal in the EU.'} "
+                        f"Deliver this firmly but professionally. Do NOT discuss compliance measures — "
+                        f"the ban is absolute and unconditional. End the conversation."
+                    )
+
+                elif needs_exemption_probe:
+                    purpose = facts.get("purpose", "").lower()
+                    context = facts.get("context", "").lower()
+                    if "emotion" in purpose:
+                        directive = (
+                            f"The system appears to involve emotion recognition in a {context} context, "
+                            f"which is generally BANNED under Article 5. Ask ONE clarifying question: is this "
+                            f"for a specific medical or safety purpose (e.g., detecting narcolepsy, seizure "
+                            f"monitoring)? If not, it's prohibited. Be firm but give them a fair chance."
+                        )
+                    elif "social_scoring" in purpose:
+                        directive = (
+                            "The system appears to involve social scoring, which is generally BANNED under "
+                            "Article 5. Ask if there's a specific legitimate purpose. Be firm but fair."
+                        )
+                    else:
+                        directive = (
+                            "The system may involve a prohibited practice under Article 5. Ask ONE "
+                            "clarifying question to determine if there's a legitimate exemption."
+                        )
+
+                elif risk_level == "LIMITED":
+                    if transparency_confirmed:
+                        directive = (
+                            "The user's LIMITED-risk system has confirmed Article 50 transparency compliance. "
+                            "Summarize their status positively and suggest they generate a Compliance Report "
+                            "using the 'Download Report' button. Be encouraging and wrap up naturally."
+                        )
+                    else:
+                        capability = facts.get("capability", "").lower()
+                        if "content_generation" in capability:
+                            directive = (
+                                "This is a LIMITED-risk content generation system. The ONLY compliance "
+                                "requirement is Article 50 transparency — AI-generated content must be clearly "
+                                "marked. Ask whether they have watermarking or disclosure in place. "
+                                "Don't ask about other compliance topics."
+                            )
+                        else:
+                            directive = (
+                                "This is a LIMITED-risk interactive/chatbot system. The ONLY compliance "
+                                "requirement is Article 50 transparency — users must know they're interacting "
+                                "with AI. Ask whether this notice is clearly visible. Don't ask about "
+                                "other compliance topics."
+                            )
+
+                elif risk_level == "HIGH" and missing_mandatory_topics:
+                    next_topic = missing_mandatory_topics[0]
+                    info = ARTICLE_INFO.get(next_topic, {})
+                    transition = ""
+                    if just_resolved_topic:
+                        prev_info = ARTICLE_INFO.get(just_resolved_topic, {})
+                        transition = f"The user just addressed {prev_info.get('article', '')} — acknowledge that briefly. "
+                    # Tie compliance questions to specific workflow steps
+                    workflow_ref = ""
+                    if workflow_steps:
+                        workflow_ref = (
+                            f" The user's workflow is: {workflow_str}. "
+                            f"Ask specifically at which steps in their workflow {info.get('short', '')} applies. "
+                            f"Reference their actual process steps by name."
+                        )
+                    directive = (
+                        f"{transition}We haven't yet discussed {info.get('article', next_topic)} "
+                        f"({info.get('requirement', '')}). Since this is a HIGH-risk system, this is mandatory. "
+                        f"Ask about it conversationally — for example, ask how they currently handle "
+                        f"{info.get('short', '')}.{workflow_ref} Be curious and exploratory, not interrogatory."
+                    )
+                    directive_topic = next_topic
+
+                elif report_ready or (risk_level == "HIGH" and all_high_priority_completed):
+                    directive = (
+                        "All mandatory compliance topics have been addressed. Give a brief, positive "
+                        "summary of where they stand (mention which articles are compliant/planned), "
+                        "then tell them they can generate their Compliance Report using the "
+                        "'Download Report' button. Keep it warm and professional."
+                    )
+
+                elif risk_level == "HIGH" and high_risk_complete:
+                    directive = (
+                        "The high-risk assessment is essentially complete. Summarize the compliance "
+                        "status and suggest generating the report."
+                    )
+
+                elif current_state == InterviewState.ASSESSMENT:
+                    directive = (
+                        "The assessment has gathered sufficient information. Summarize the key findings "
+                        "and suggest generating a Compliance Report for human review."
+                    )
+
+                elif missing_facts:
+                    fact_descriptions = {
+                        "domain": "what industry or area their AI system operates in",
+                        "role": "whether they built the system (provider) or are using an existing one (deployer)",
+                        "purpose": "what specific task or goal the AI system achieves",
+                        "data_type": "what kind of data the system processes",
+                        "automation": "how automated the decision-making is",
+                        "context": "where the system is deployed",
+                        "human_oversight": "whether humans review the AI's decisions",
+                        "workflow_steps": "a step-by-step walkthrough of their operational workflow",
+                    }
+                    next_missing = missing_facts[0] if missing_facts else None
+                    desc = fact_descriptions.get(next_missing, next_missing) if next_missing else "more about their system"
+                    directive = (
+                        f"We still need to learn {desc}. Ask about this naturally — weave it into the "
+                        f"conversation based on what they've already told you. Be curious, not interrogative."
+                    )
+
+                else:
+                    directive = (
+                        "Continue the compliance assessment naturally. Ask about any aspect of their "
+                        "AI system that hasn't been explored yet, or summarize what you know so far "
+                        "and ask if they'd like to proceed."
+                    )
+
+            # === COMPUTE RAG CONTEXT ===
+            rag_context = ""
+            if directive_topic and directive_topic in HIGH_RISK_TOPIC_ORDER:
+                rag_context = get_article_context_for_topic(directive_topic)
+
+            if not rag_context:
+                for fk in HIGH_RISK_TOPIC_ORDER:
+                    if (facts.get(fk) or "").strip().lower() == "partial_or_unclear":
+                        rag_context = get_article_context_for_topic(fk)
                         break
 
-            # RAG context: inject EU AI Act excerpt for the topic the user just spoke about (for expert guidance)
-            rag_context = ""
-            if last_updated_fact_key and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER:
-                rag_context = get_article_context_for_topic(last_updated_fact_key)
-            partial_or_unclear_topic = None
+            # At CHECKPOINT or when entering it, use dynamic article identification
+            # to surface additional relevant articles beyond the mandatory 4
+            if not rag_context and current_state in [InterviewState.CHECKPOINT, InterviewState.WORKFLOW]:
+                domain = facts.get("domain", "")
+                purpose = facts.get("purpose", "")
+                if domain or purpose:
+                    relevant = identify_relevant_articles(domain, purpose, workflow_steps, n_results=5)
+                    if relevant:
+                        chunks = []
+                        for r in relevant:
+                            header = f"[{r['article']}] {r['title']}" if r.get('title') else r.get('article', '')
+                            chunks.append(f"{header}\n{r.get('text', '')[:500]}")
+                        rag_context = "\n\n---\n\n".join(chunks)
+
+            if not rag_context:
+                domain = facts.get("domain", "")
+                purpose = facts.get("purpose", "")
+                if domain or purpose:
+                    query = f"{domain} {purpose} AI system EU AI Act requirements"
+                    rag_context = get_article_context_for_query(query, n_results=2) or ""
+
+            # === BUILD CONDENSED STATE ===
+            skip_keys = {"confidence_scores"}  # Keep workflow_steps visible but handle separately
+            condensed_facts = {k: v for k, v in facts.items() if k not in skip_keys and k != "workflow_steps" and v}
+
+            gaps_summary = []
             for fk in HIGH_RISK_TOPIC_ORDER:
-                if (facts.get(fk) or "").strip().lower() == "partial_or_unclear":
-                    partial_or_unclear_topic = fk
-                    if not rag_context:
-                        rag_context = get_article_context_for_topic(fk)
-                    break
+                val = (facts.get(fk) or "").strip().lower()
+                if val in ["absent", "no", "partial", "partial_or_unclear"]:
+                    label = FACT_KEY_TO_LABEL.get(fk, fk)
+                    gaps_summary.append(f"{label}: {val}")
 
-            # Format variables for prompt (ensure they're strings)
-            article_14_blocking_str = str(article_14_blocking)
-            remediation_question_asked_str = str(remediation_question_asked)
-            remediation_response_str = str(remediation_response) if remediation_response else "None"
-            topic_ask_count_str = json.dumps(topic_ask_count) if topic_ask_count else "{}"
-            stuck_on_topic_str = stuck_on_topic or "None"
+            state_desc = StateMachine.get_state_description(current_state)
+            confidence_msg = StateMachine.get_confidence_message(confidence, risk_level)
 
-            prompt = f"""
-        You are an EU AI Act Expert Consultant. Your goal is to determine if the user has met the legal threshold for each obligation. Use the facts and the law excerpt below. If their answer is insufficient, do NOT simply repeat the question—explain why it is insufficient and offer a concrete suggestion.
-        
-        EU AI ACT CONTEXT (relevant to current topic):
-        {rag_context if rag_context else "None — use your knowledge of the EU AI Act."}
-        
-        You are conducting a structured interview.
-        
-        CURRENT STATE: {state_desc} ({current_state.value})
-        - Known Facts: {json.dumps(facts, indent=2)}
-        - Assessed Risk Level: {risk_level}
-        - Missing Information: {missing_facts}
-        - Compliance Gaps Detected: {compliance_gaps if compliance_gaps else "None"}
-        - Needs Exemption Probe: {needs_exemption_probe}
-        - Transparency Confirmed (for LIMITED risk): {transparency_confirmed}
-        - Missing Mandatory Topics (for HIGH risk): {missing_mandatory_topics if missing_mandatory_topics else "None - All topics covered"}
-        - High Risk Assessment Complete: {high_risk_complete}
-        - Report Ready (all obligations addressed; suggest generating compliance report): {report_ready}
-        - Blocked Message (if UNACCEPTABLE): {blocked_message if blocked_message else "None"}
-        - Article 14 Blocking (CRITICAL): {article_14_blocking_str}
-        - Remediation Question Asked: {remediation_question_asked_str}
-        - Remediation Response: {remediation_response_str}
-        - Active Topic (topic the user just spoke about): {last_updated_fact_key or "None"}
-        - Topic in partial_or_unclear state (vague/informal answer): {partial_or_unclear_topic or "None"}
-        - DIALOGUE MEMORY (times we have asked about each topic): {topic_ask_count_str}
-        - STUCK ON TOPIC (user still has gap here and we have asked 2+ times): {stuck_on_topic_str}
-        
-        DIALOGUE MEMORY RULE: If "Stuck on topic" is set (we have asked that topic 2+ times and it is still unresolved), do NOT ask the same question again. You MUST do one of:
-        (A) MULTIPLE-CHOICE: Offer 3 concrete options so the user can pick one. Use this format: "To move forward, which best describes your situation? A) [concrete option, e.g. formal human review each release]. B) [another option, e.g. sampling-based review]. C) [e.g. Let's cover data governance first and circle back to this]." Then wait for their choice.
-        (B) PIVOT: Move to the next mandatory topic and say you will circle back (see Expert Pivot below).
-        
-        EXPERT PIVOT (you are ALLOWED and ENCOURAGED): If the user is stuck on Article 14 (human oversight), move to Article 10 (Data Governance) to keep the conversation flowing. Say: "It seems we're stuck on the technicalities of Article 14. To keep things moving, let's jump to Article 10 (Data Governance)—we can circle back to formalizing oversight later." Then ask one question about data governance (bias mitigation, training data quality). For any stuck topic, pivot to the next article in order (14 → 10 → 15 → 12) and return to the stuck topic later.
-        
-        EXPERT CONSULTATION MODE (when a topic is "partial_or_unclear" or user gave a vague answer):
-        - Do NOT repeat the same question. The user has already responded; their answer was classified as vague or informal.
-        - DO: (1) Acknowledge their effort ("I see you're thinking about [topic] / have something in place informally"). (2) Explain the legal requirement in 1-2 sentences, referencing the EU AI Act excerpt above. (3) Suggest a specific improvement ("For example, you could formalize a three-tier review process..." or "Many companies document bias testing quarterly..."). (4) Optionally offer a "Consultant's Suggestion": "Most companies in your position implement [X]. Would you like to see how that could work for you?"
-        - PIVOT OPTION: If the user seems stuck on one topic (e.g. multiple vague answers on the same point), you MAY pivot: "It seems we're circling the technicalities of [Article X]. To keep things moving, let's jump to [next topic, e.g. Article 10 Data Governance], and we can circle back to formalizing [topic] later." Then ask about the next mandatory topic once.
-        - Status for sidebar: Treat "partial_or_unclear" as Under Review; treat a clear commitment ("we will do X") as Planned.
-        
-        CONTEXT-AWARE RULES (CRITICAL - prevents zombie loop):
-        - If "Active Topic" is set (e.g. data_governance), address THAT topic only. Do NOT jump back to Article 14 (human oversight) when the user is discussing another topic.
-        - Only after the active topic is resolved (present/planned/planned_remediation) should you move to the next topic in order.
-        - Any topic marked "planned_remediation" or "planned" in Known Facts is DONE - do NOT ask about it again.
-        
-        INSTRUCTIONS - PRIORITY ORDER (STRICT - DO NOT SKIP):
-        
-        PRIORITY 0 (HIGHEST - COMPLIANCE GUARDRAIL): Article 14 Human Oversight Blocking Logic
-        - This MUST run BEFORE any other priority. Check "Article 14 Blocking" flag above.
-        - Under Article 14, ONLY "present" (full human oversight) or "planned" (after remediation) is compliant. "partial" oversight is NON-COMPLIANT and must trigger the same blocking as "absent".
-        - IF risk_level == "HIGH" AND human_oversight in ["absent", "no", "partial", "partial_or_unclear"]:
-          - IF "Remediation Response" is "partial_or_unclear" (user gave a vague answer): Do NOT repeat the question. Follow EXPERT CONSULTATION MODE: acknowledge, explain the legal requirement using the EU AI Act context above, suggest a specific improvement, and optionally offer a Consultant's Suggestion or pivot to another topic.
-          - IF "Remediation Question Asked" is False (we haven't asked yet):
-            - IMMEDIATELY ask: "⚠️ Critical Gap: Article 14 requires human oversight for high-risk systems. Your system is currently non-compliant. Can you implement a 'Human-in-the-loop' review step?"
-            - DO NOT ask any other questions until this is resolved.
-            - DO NOT proceed to other topics.
-          - IF "Remediation Response" is "accepted" (user said YES):
-            - human_oversight should be set to "planned" (check Known Facts)
-            - Respond: "Good. I have noted that oversight measures will be implemented. This addresses the Article 14 requirement. Let's move to Article 10 (Data Governance)."
-            - Proceed to next mandatory topic (data_governance).
-          - IF "Remediation Response" is "refused" (user said NO):
-            - TERMINATE THE ASSESSMENT IMMEDIATELY.
-            - Respond EXACTLY: "⛔ Assessment Terminated. You have confirmed that this High-Risk system will NOT have human oversight. This is a direct violation of Article 14 of the EU AI Act. This system cannot be legally deployed. I am generating your Non-Compliance Report now."
-            - DO NOT ask any more questions.
-            - The system will automatically generate a Non-Compliance Report.
-        - FLIP-FLOP DETECTION: If user was previously compliant (human_oversight was "present" or "planned") but now says "we removed it" or "we eliminated oversight", the blocking logic MUST re-engage immediately.
-        - This blocking check runs on EVERY turn - if human_oversight is "absent", "no", or "partial" at any point, the guardrail activates.
-        
-        PRIORITY 1: If Risk Level is "UNACCEPTABLE":
-        - STOP asking compliance questions (oversight, data, etc.)
-        - Issue a firm but educational "Prohibited Practice Warning"
-        - Use the exact "Blocked Message" provided above. If a blocked message exists, use it verbatim. Do NOT modify it or add any mention of "human oversight" or "compliance measures".
-        - If no blocked message is provided, construct a message stating: "❌ Assessment Halted. This use case is illegal in the EU under Article 5 due to [specific prohibited practice]. I cannot proceed with generating a compliance profile for a banned use case."
-        - CRITICAL: Article 5 bans are PER SE (inherently illegal) - they have NOTHING to do with human oversight, data protection, or any other compliance measure. The system is illegal regardless of these factors.
-        - Do NOT mention "human oversight", "compliance measures", or any conditional factors in the rejection message. The ban is absolute and unconditional.
-        - Do NOT ask any follow-up questions about compliance.
-        - End the conversation professionally.
-        
-        PRIORITY 2: If Risk Level is "PENDING_PROHIBITED" (needs exemption probe):
-        - Ask ONE clarifying exemption question
-        - For emotion recognition in education/workplace: "Wait. Emotion recognition in schools/workplaces is generally banned under Article 5. Is this system intended for a specific medical or safety purpose (e.g., detecting narcolepsy, monitoring for seizures, safety alerts)? If not, this is a Prohibited Practice."
-        - For social scoring: "Wait. Social scoring systems are generally banned under Article 5. Is this system intended for a specific legitimate purpose? If not, this is a Prohibited Practice."
-        - Do NOT ask about compliance requirements (oversight, data, etc.) until exemption is resolved.
-        - Be firm but educational - explain why it's banned, but give them a chance to clarify if there's a legitimate exemption.
-        
-        PRIORITY 2.5: If Risk Level is "LIMITED" (e.g., Chatbots/Deepfakes):
-        - CRITICAL LOOP PREVENTION: Check the "Transparency Confirmed" flag above. If it is True, transparency is already confirmed - do NOT ask about transparency again.
-        - Also check Known Facts: If "transparency": "present" or "article_50_notice": "yes" is already in Known Facts, do NOT ask about transparency again.
-        - If transparency is already confirmed (flag is True OR "present"/"yes" in Known Facts), respond: "Based on the information provided, your system appears to align with Article 50 transparency requirements for LIMITED risk AI systems. Our analysis indicates your system is likely consistent with the disclosure obligations. Would you like to generate a preliminary Compliance Report for human review?"
-        - If transparency is NOT yet confirmed (flag is False AND not "present"/"yes" in Known Facts):
-          - Do NOT ask for clarification on purpose, domain, or other details.
-          - Immediately trigger the Article 50 transparency check - this is the ONLY compliance requirement for LIMITED risk systems.
-          - For chatbots/interaction systems: Ask: "Under Article 50, you must disclose that users are interacting with an AI. Is this transparency notice clearly visible to users?"
-          - For content generation/deepfakes: Ask: "Under Article 50, AI-generated content must be clearly marked. Is this watermarking or disclosure mechanism in place?"
-        - Do NOT ask about human oversight, data types, automation, or other compliance questions - LIMITED risk ONLY requires Article 50 transparency.
-        - Once transparency is confirmed, suggest generating a preliminary Compliance Report for human review.
-        
-        PRIORITY 3: If Risk Level is "HIGH":
-        - MANDATORY CHECKLIST ENFORCEMENT: Check "Missing Mandatory Topics" above. This is CRITICAL.
-        - If "Missing Mandatory Topics" is NOT empty, you MUST ask about the FIRST missing topic before doing anything else.
-        - DO NOT suggest generating a preliminary Compliance Report if there are missing mandatory topics.
-        - Priority order for missing topics (ask about the FIRST one in the list):
-          1. human_oversight (if missing) - Ask: "Since this is a High Risk system, we must ensure human oversight under Article 14. Do you have human reviewers who can stop or override the AI's decisions?"
-          2. data_governance (if missing) - Ask: "Since this is a High Risk system, we must ensure data quality under Article 10. How do you mitigate bias in your training data (e.g., ensuring fair representation of different demographics)?"
-          3. accuracy_robustness (if missing) - Ask: "Since this is a High Risk system, we must ensure accuracy and robustness under Article 15. How do you monitor error rates and ensure the system's security and reliability?"
-          4. record_keeping (if missing) - Ask: "Since this is a High Risk system, we must ensure proper record keeping under Article 12. Do you maintain logs of the AI system's operations and decisions?"
-        - Ask ONE missing topic at a time. Do NOT skip mandatory topics or ask about other things.
-        
-        - HANDLING "NO" ANSWERS - BE CONVERSATIONAL AND EXPLORATORY:
-          When a user answers "no" to a mandatory topic question, DO NOT just flag it as a gap and move on. Instead:
-          1. Ask follow-up questions to understand the context and explore alternatives:
-             - For "human_oversight": "no" → Ask: "I understand you don't currently have human oversight. Is this something you're planning to implement? Are there any review mechanisms in place, even if not formal?"
-             - For "data_governance": "no" → Ask: "I see you don't have formal bias mitigation measures yet. Have you done any data quality checks or demographic analysis? Are there plans to address this?"
-             - For "accuracy_robustness": "no" → Ask: "I understand monitoring isn't in place yet. Do you have any testing or validation processes? Are there plans to implement error rate tracking?"
-             - For "record_keeping": "no" → Ask: "I see logging isn't currently implemented. Do you have any documentation or audit trails? Is this something you're planning to add?"
-          2. Be understanding and conversational - acknowledge their situation, explore what they DO have, and understand their plans.
-          3. After 1-2 follow-up questions, if they still confirm "no" or don't have alternatives, acknowledge the compliance gap professionally and move to the next topic.
-          4. DO NOT loop - if you've already asked 1-2 follow-up questions about a topic and they've confirmed "no", move on to the next mandatory topic.
-        
-        - CRITICAL LOOP PREVENTION: 
-          - If you've already asked about a mandatory topic AND asked 1-2 follow-up questions after a "no" answer, do NOT ask about it again.
-          - A topic is "addressed" if: (a) it's "yes", OR (b) it's "no" AND you've asked follow-up questions.
-          - Only move to the next topic after you've explored the current one with follow-up questions (if they said "no").
-        
-        - ONLY suggest generating a preliminary Compliance Report for human review if "High Risk Assessment Complete" is True (all mandatory topics covered, even if some are "no") AND you're in ASSESSMENT state.
-        
-        PRIORITY 4: If Risk Level is HIGH and all mandatory topics are covered:
-        - Provide a clear but professional summary (1 sentence).
-        - Check the Known Facts: If a fact is already present (even if it's "no"), do NOT ask about it again.
-        - If all mandatory topics are confirmed, suggest generating a preliminary Compliance Report for human review.
-        
-        PRIORITY 5: If "Report Ready" is True (all obligations for Articles 14, 10, 15, 12 addressed):
-        - Do NOT ask any more compliance questions.
-        - Give a brief positive summary (1-2 sentences) and say: "Your assessment is complete. You can now generate a Compliance Report for human review using the 'Download Report' button. The report will summarize your system's risk level and obligations."
-        - Keep the tone smooth and professional so the user can complete the full assessment and obtain the report.
-        
-        PRIORITY 6: If all critical information is collected and we're in ASSESSMENT state (and for HIGH risk, all mandatory topics are covered):
-        - Suggest generating a preliminary Compliance Report for human review.
-        
-        CRITICAL RULE - Natural Conversation Flow:
-        - When a user says "no" to a question, ask 1-2 follow-up questions to understand their situation better before moving on.
-        - Be conversational and explore alternatives - don't just flag it as unacceptable.
-        - After exploring a topic (even if the answer is "no"), move to the next topic naturally.
-        - Avoid loops: If you've already asked about a topic AND asked follow-up questions, do NOT ask about it again.
-        - Only ask about facts that are completely absent from Known Facts, or facts that are "no" but haven't been explored with follow-up questions yet.
-        - A "no" answer should trigger exploration, not immediate rejection - understand the context first.
-        
-        IMPORTANT:
-        - Be concise (2-3 sentences total, unless addressing a critical gap or prohibited practice).
-        - Do not lecture or provide legal advice.
-        - Be conversational and helpful, but firm when blocking prohibited practices.
-        - If confidence is LOW or MEDIUM, acknowledge that the assessment may change.
-        """
-        
+            # === TRIM CONVERSATION HISTORY (last ~20 lines for context) ===
+            history_lines = conversation_history.strip().split("\n") if conversation_history else []
+            recent_history = "\n".join(history_lines[-20:]) if len(history_lines) > 20 else conversation_history
+
+            # === BUILD LLM PROMPT ===
+            rag_section = ""
+            if rag_context:
+                rag_section = f"\nEU AI ACT LEGAL CONTEXT (cite when relevant):\n{rag_context}\n"
+
+            prompt = f"""You are a senior EU AI Act compliance consultant having a professional conversation with a client about their AI system. You're knowledgeable, approachable, and practical — like an experienced advisor who makes complex regulation understandable. You speak with authority but never condescend.
+
+YOUR TASK RIGHT NOW:
+{directive}
+
+COMPLIANCE STATE:
+- Interview Phase: {state_desc} ({current_state.value})
+- Risk Level: {risk_level}
+- Known Facts: {json.dumps(condensed_facts, indent=2)}
+- Workflow Steps: {workflow_str if workflow_str else 'Not yet gathered'}
+- Current Gaps: {', '.join(gaps_summary) if gaps_summary else 'None identified yet'}
+- Stuck on Topic: {stuck_on_topic if stuck_on_topic else 'No'}
+- Times Asked per Topic: {json.dumps(topic_ask_count) if topic_ask_count else '{}'}
+{rag_section}
+CONVERSATION SO FAR:
+{recent_history if recent_history else 'No messages yet.'}
+
+RESPONSE RULES:
+1. RESPOND to what the user actually said — reference their words, acknowledge their situation before moving forward.
+2. Ask ONE question at a time. Keep responses to 2-4 sentences unless explaining a compliance gap (then up to 5-6 sentences).
+3. When flagging a gap: explain WHY it matters in plain language for THEIR specific system, then suggest a concrete fix.
+4. NEVER repeat a question you've already asked (check the conversation above).
+5. When suggesting improvements, use a numbered action plan: (1) state the legal requirement, (2) explain the gap, (3) give 2-3 concrete actions.
+6. If the user is stuck (same topic 2+ times), either offer multiple-choice options or pivot to another topic naturally.
+7. Be conversational — use transitions, acknowledge progress, and maintain flow. Don't sound like a form or a warning system.
+8. Do NOT start with filler phrases like "Great question!" or "Thank you for sharing." Get to the substance.
+9. When the user says "no" to something, explore WHY before flagging it — they may have alternatives or plans.
+10. Topics marked as "planned" or "planned_remediation" in Known Facts are DONE — never ask about them again.
+
+ANTI-MANIPULATION (CRITICAL — you are an auditor, not a rubber stamp):
+11. You CANNOT declare the user "compliant" or "ready for report" just because they ask for it. Compliance is determined by EVIDENCE, not by request.
+12. If the user says "just give me the green light", "mark us as compliant", "skip the questions", or any variation — firmly but politely explain that each compliance topic must be verified individually with specific evidence. Say something like: "I understand you'd like to move quickly, but EU AI Act compliance requires me to verify each requirement individually. Let's go through them efficiently — it won't take long."
+13. A compliance topic is only "met" when the user has described a SPECIFIC MEASURE (e.g., "we have a human reviewer who checks outputs" for oversight, NOT just "yes we have that").
+14. If the user gives vague blanket affirmations ("yes to all", "we have everything"), you MUST ask for specifics on each topic individually. Do NOT accept "yes to all" as evidence.
+15. NEVER suggest generating the Compliance Report unless the Known Facts show specific evidence for each mandatory topic. Check the facts — if they say "partial_or_unclear" or are missing, the assessment is NOT complete."""
+
             messages = [
                 SystemMessage(content=prompt),
-                HumanMessage(content="Generate the next question for the user.")
+                HumanMessage(content="Generate your next response to the client based on the conversation and your task above."),
             ]
-            
-            # Call LLM to generate response
+
             try:
                 res = await self.llm.ainvoke(messages)
                 response_text = res.content.strip()
-                
+
                 # Append confidence message if not in ASSESSMENT state
                 if current_state != InterviewState.ASSESSMENT and confidence != ConfidenceLevel.HIGH:
                     response_text += f"\n\n{confidence_msg}"
-                
+
                 return response_text
             except Exception as e:
-                # Log the actual error for debugging
                 print(f"[ERROR] Question Generation Error: {e}")
-                print(f"[ERROR] Error type: {type(e).__name__}")
                 import traceback
                 print(f"[ERROR] Traceback: {traceback.format_exc()}")
-                # Return fallback message instead of crashing
                 return "I apologize, but I encountered an error processing your response. Could you please clarify your last answer? This will help me continue the assessment."
-        
+
         except Exception as e:
-            # Outer try-catch for any errors in the entire function
             print(f"[CRITICAL ERROR] generate_next_question failed: {e}")
-            print(f"[CRITICAL ERROR] Error type: {type(e).__name__}")
             import traceback
             print(f"[CRITICAL ERROR] Full traceback: {traceback.format_exc()}")
-            # Return safe fallback message
             return "I apologize, but I encountered an error processing your response. Could you please clarify your last answer? This will help me continue the assessment."
