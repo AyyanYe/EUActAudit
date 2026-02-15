@@ -524,17 +524,17 @@ class GovernanceEngine:
                             if not include_parked and (is_parked or is_auto_parked):
                                 continue
                             
-                            ob_status = obligation_status_by_fact.get(fact_key)
-                            if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
-                                continue
-                            fact_value = (facts.get(fact_key) or "").strip().lower()
-                            if fact_value in ["yes", "present", "planned", "planned_remediation"]:
-                                continue
-                            if fact_key == "human_oversight" and (facts.get("remediation_accepted") or "").strip().lower() == "yes":
-                                continue
-                            remediation_key = "remediation_accepted" if fact_key == "human_oversight" else f"{fact_key}_remediation"
-                            remediation_value = (facts.get(remediation_key) or "").strip().lower()
-                            if is_planned_value(fact_value) or fact_value in ["planned_remediation", "planned"] or remediation_value == "yes":
+                        ob_status = obligation_status_by_fact.get(fact_key)
+                        if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
+                            continue
+                        fact_value = (facts.get(fact_key) or "").strip().lower()
+                        if fact_value in ["yes", "present", "planned", "planned_remediation"]:
+                            continue
+                        if fact_key == "human_oversight" and (facts.get("remediation_accepted") or "").strip().lower() == "yes":
+                            continue
+                        remediation_key = "remediation_accepted" if fact_key == "human_oversight" else f"{fact_key}_remediation"
+                        remediation_value = (facts.get(remediation_key) or "").strip().lower()
+                        if is_planned_value(fact_value) or fact_value in ["planned_remediation", "planned"] or remediation_value == "yes":
                                 continue
 
                             info = ARTICLE_INFO.get(fact_key, {})
@@ -563,7 +563,7 @@ class GovernanceEngine:
                                 directive_topic = fact_key
                                 break
 
-                            if fact_value in ["absent", "no"]:
+                        if fact_value in ["absent", "no"]:
                                 if stuck_on_topic == fact_key or is_auto_parked:
                                     # User is stuck or topic was auto-parked — pivot to next unresolved topic
                                     next_topic = None
@@ -660,7 +660,7 @@ class GovernanceEngine:
                             if oc == ob_code:
                                 fact_key = fk
                                 break
-
+                        
                         if fact_key:
                             fact_value = facts.get(fact_key, "").lower()
                             remediation_key = f"{fact_key}_remediation"
@@ -668,7 +668,7 @@ class GovernanceEngine:
 
                             if fact_value in ["yes", "present"] or is_planned_value(fact_value) or remediation_value == "yes":
                                 continue
-
+                            
                             if not remediation_value:
                                 directive = (
                                     f"A compliance gap was detected for {ob_title} (obligation {ob_code}). "
@@ -681,22 +681,22 @@ class GovernanceEngine:
 
             # --- State-aware directives (when no gap-specific directive was generated) ---
             if not directive:
-                needs_exemption_probe = risk_level == "PENDING_PROHIBITED"
-
-                transparency_confirmed = False
-                if risk_level == "LIMITED":
+            needs_exemption_probe = risk_level == "PENDING_PROHIBITED"
+            
+            transparency_confirmed = False
+            if risk_level == "LIMITED":
                     if facts.get("transparency", "").lower() == "present" or facts.get("article_50_notice", "").lower() == "yes":
-                        transparency_confirmed = True
-
-                missing_mandatory_topics = []
-                high_risk_complete = False
+                    transparency_confirmed = True
+            
+            missing_mandatory_topics = []
+            high_risk_complete = False
                 report_ready = False
-                if risk_level == "HIGH":
+            if risk_level == "HIGH":
                     obligations_list = obligations or []
-                    missing_mandatory_topics = get_missing_mandatory_topics(facts, obligations_list)
-                    high_risk_complete = can_complete_high_risk_assessment(facts, obligations_list)
-                    report_ready = all_high_priority_completed and (current_state == InterviewState.ASSESSMENT or high_risk_complete)
-
+                missing_mandatory_topics = get_missing_mandatory_topics(facts, obligations_list)
+                high_risk_complete = can_complete_high_risk_assessment(facts, obligations_list)
+                report_ready = all_high_priority_completed and (current_state == InterviewState.ASSESSMENT or high_risk_complete)
+            
                 # --- Report blocker explanation ---
                 # If the user explicitly asks for the report but topics are unresolved,
                 # explain exactly what's blocking instead of deflecting.
@@ -716,12 +716,12 @@ class GovernanceEngine:
                         )
                 
                 if not directive and risk_level == "UNACCEPTABLE":
-                    blocked_message = ""
+            blocked_message = ""
                     if warnings:
                         for w in warnings:
                             if "BLOCKED:" in str(w):
                                 blocked_message = str(w).replace("BLOCKED:", "").strip()
-                                break
+                        break
                     directive = (
                         f"This system has been classified as PROHIBITED under Article 5 of the EU AI Act. "
                         f"{blocked_message if blocked_message else 'The use case is illegal in the EU.'} "
@@ -932,27 +932,27 @@ ANTI-MANIPULATION (CRITICAL — you are an auditor, not a rubber stamp):
 13. A compliance topic is only "met" when the user has described a SPECIFIC MEASURE (e.g., "we have a human reviewer who checks outputs" for oversight, NOT just "yes we have that").
 14. If the user gives vague blanket affirmations ("yes to all", "we have everything"), you MUST ask for specifics on each topic individually. Do NOT accept "yes to all" as evidence.
 15. NEVER suggest generating the Compliance Report unless the Known Facts show specific evidence for each mandatory topic. Check the facts — if they say "partial_or_unclear" or are missing, the assessment is NOT complete."""
-
+        
             messages = [
                 SystemMessage(content=prompt),
                 HumanMessage(content="Generate your next response to the client based on the conversation and your task above."),
             ]
-
+            
             try:
                 res = await self.llm.ainvoke(messages)
                 response_text = res.content.strip()
-
+                
                 # Append confidence message if not in ASSESSMENT state
                 if current_state != InterviewState.ASSESSMENT and confidence != ConfidenceLevel.HIGH:
                     response_text += f"\n\n{confidence_msg}"
-
+                
                 return response_text
             except Exception as e:
                 print(f"[ERROR] Question Generation Error: {e}")
                 import traceback
                 print(f"[ERROR] Traceback: {traceback.format_exc()}")
                 return "I apologize, but I encountered an error processing your response. Could you please clarify your last answer? This will help me continue the assessment."
-
+        
         except Exception as e:
             print(f"[CRITICAL ERROR] generate_next_question failed: {e}")
             import traceback

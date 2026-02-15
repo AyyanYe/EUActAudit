@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, ShieldCheck, FileText, Menu, X } from "lucide-react";
+import { LayoutDashboard, ShieldCheck, FileText, Menu } from "lucide-react";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "../ui/sheet";
 import { cn } from "../../lib/utils";

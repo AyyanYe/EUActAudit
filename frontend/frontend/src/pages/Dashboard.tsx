@@ -9,7 +9,7 @@ import {
 } from 'recharts';
 import {
   ShieldCheck, ShieldAlert, Activity, FileText, Scale, AlertTriangle,
-  ArrowUpRight, Clock, CheckCircle2, XCircle, TrendingUp, Layers,
+  ArrowUpRight, Clock, CheckCircle2, XCircle, Layers,
 } from "lucide-react";
 import { DashboardService } from "./../services/api";
 import { useAuth } from "@clerk/clerk-react";
@@ -191,7 +191,7 @@ export function Dashboard() {
                     </Pie>
                     <Tooltip
                       contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                      formatter={(value: number, name: string) => [`${value} project${value !== 1 ? 's' : ''}`, name]}
+                      formatter={(value: any, name: any) => [`${value} project${value !== 1 ? 's' : ''}`, name]}
                     />
                     <Legend
                       verticalAlign="bottom"
@@ -231,7 +231,7 @@ export function Dashboard() {
                     <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                     <Tooltip
                       contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                      formatter={(value: number) => [`${value} messages`, 'Activity']}
+                      formatter={(value: any) => [`${value} messages`, 'Activity']}
                     />
                     <Area
                       type="monotone"
