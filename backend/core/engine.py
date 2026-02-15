@@ -535,101 +535,101 @@ class GovernanceEngine:
                         remediation_key = "remediation_accepted" if fact_key == "human_oversight" else f"{fact_key}_remediation"
                         remediation_value = (facts.get(remediation_key) or "").strip().lower()
                         if is_planned_value(fact_value) or fact_value in ["planned_remediation", "planned"] or remediation_value == "yes":
-                                continue
+                            continue
 
-                            info = ARTICLE_INFO.get(fact_key, {})
-                            
-                            # Provider-specific framing for human oversight
-                            role = facts.get("role", "").lower()
-                            is_provider = role in ["provider", "builder"]
+                        info = ARTICLE_INFO.get(fact_key, {})
+                        
+                        # Provider-specific framing for human oversight
+                        role = facts.get("role", "").lower()
+                        is_provider = role in ["provider", "builder"]
 
-                            if fact_value == "partial_or_unclear":
-                                if is_provider and fact_key == "human_oversight":
+                        if fact_value == "partial_or_unclear":
+                            if is_provider and fact_key == "human_oversight":
+                                directive = (
+                                    f"The user's answer about human oversight design was vague ('{fact_value}'). "
+                                    f"As a PROVIDER, they need to design the system so deployers CAN implement oversight. "
+                                    f"Ask specifically: Does the system expose an API or UI for human review? "
+                                    f"Can deployers configure thresholds for automated vs. human decisions? "
+                                    f"Is there a 'stop' mechanism built in? Frame this as a design question."
+                                )
+                            else:
+                                directive = (
+                                    f"The user's answer about {info.get('requirement', fact_key)} was classified as "
+                                    f"vague/informal ('{fact_value}'). DO NOT repeat the question. Act as a consultant: "
+                                    f"acknowledge their effort, explain what {info.get('article', '')} specifically requires, "
+                                    f"and suggest a concrete improvement. Offer a 'Consultant's Suggestion' — what most "
+                                    f"companies in their position do."
+                                )
+                            directive_topic = fact_key
+                            break
+
+                        if fact_value in ["absent", "no"]:
+                            if stuck_on_topic == fact_key or is_auto_parked:
+                                # User is stuck or topic was auto-parked — pivot to next unresolved topic
+                                next_topic = None
+                                for nk in rotated_order:
+                                    if nk == fact_key:
+                                        continue
+                                    if not _topic_resolved(nk, facts) and topic_ask_count.get(nk, 0) < 3:
+                                        next_topic = nk
+                                        break
+                                if next_topic:
+                                    next_info = ARTICLE_INFO.get(next_topic, {})
                                     directive = (
-                                        f"The user's answer about human oversight design was vague ('{fact_value}'). "
-                                        f"As a PROVIDER, they need to design the system so deployers CAN implement oversight. "
-                                        f"Ask specifically: Does the system expose an API or UI for human review? "
-                                        f"Can deployers configure thresholds for automated vs. human decisions? "
-                                        f"Is there a 'stop' mechanism built in? Frame this as a design question."
+                                        f"The user is STUCK on {info.get('article', fact_key)} (asked "
+                                        f"{ask_count} times, still unresolved). "
+                                        f"DO NOT ask the same question again. Either: "
+                                        f"(A) Offer 3 concrete multiple-choice options they can pick from, OR "
+                                        f"(B) Pivot to {next_info.get('article', next_topic)} "
+                                        f"({next_info.get('requirement', '')}) and say you'll circle back. "
+                                        f"Make the transition feel natural."
                                     )
                                 else:
                                     directive = (
-                                        f"The user's answer about {info.get('requirement', fact_key)} was classified as "
-                                        f"vague/informal ('{fact_value}'). DO NOT repeat the question. Act as a consultant: "
-                                        f"acknowledge their effort, explain what {info.get('article', '')} specifically requires, "
-                                        f"and suggest a concrete improvement. Offer a 'Consultant's Suggestion' — what most "
-                                        f"companies in their position do."
+                                        f"The user is STUCK on {info.get('article', fact_key)} (asked "
+                                        f"{ask_count} times). Offer 3 concrete "
+                                        f"multiple-choice options: A) a specific implementation approach, "
+                                        f"B) an alternative approach, C) note the gap and move forward."
                                     )
                                 directive_topic = fact_key
                                 break
 
-                        if fact_value in ["absent", "no"]:
-                                if stuck_on_topic == fact_key or is_auto_parked:
-                                    # User is stuck or topic was auto-parked — pivot to next unresolved topic
-                                    next_topic = None
-                                    for nk in rotated_order:
-                                        if nk == fact_key:
-                                            continue
-                                        if not _topic_resolved(nk, facts) and topic_ask_count.get(nk, 0) < 3:
-                                            next_topic = nk
-                                            break
-                                    if next_topic:
-                                        next_info = ARTICLE_INFO.get(next_topic, {})
-                                        directive = (
-                                            f"The user is STUCK on {info.get('article', fact_key)} (asked "
-                                            f"{ask_count} times, still unresolved). "
-                                            f"DO NOT ask the same question again. Either: "
-                                            f"(A) Offer 3 concrete multiple-choice options they can pick from, OR "
-                                            f"(B) Pivot to {next_info.get('article', next_topic)} "
-                                            f"({next_info.get('requirement', '')}) and say you'll circle back. "
-                                            f"Make the transition feel natural."
-                                        )
-                                    else:
-                                        directive = (
-                                            f"The user is STUCK on {info.get('article', fact_key)} (asked "
-                                            f"{ask_count} times). Offer 3 concrete "
-                                            f"multiple-choice options: A) a specific implementation approach, "
-                                            f"B) an alternative approach, C) note the gap and move forward."
-                                        )
-                                    directive_topic = fact_key
-                                    break
-
-                                if remediation_value == "":
-                                    # First time flagging this gap
-                                    transition = ""
-                                    if just_resolved_topic:
-                                        prev_info = ARTICLE_INFO.get(just_resolved_topic, {})
-                                        transition = (
-                                            f"The user just resolved {prev_info.get('article', '')} — "
-                                            f"briefly acknowledge that before moving on. "
-                                        )
-                                    workflow_ref = ""
-                                    if workflow_steps:
-                                        workflow_ref = (
-                                            f" Their workflow is: {workflow_str}. "
-                                            f"Reference which specific step(s) need {info.get('short', '')}."
-                                        )
-                                    if is_provider and fact_key == "human_oversight":
-                                        directive = (
-                                            f"{transition}The user's system does NOT currently support human oversight "
-                                            f"(fact '{fact_key}' = '{fact_value}'). As a PROVIDER, Article 14 requires "
-                                            f"them to DESIGN the system so deployers can implement oversight.{workflow_ref} "
-                                            f"Ask: Does the system allow a human to review decisions before they're final? "
-                                            f"Can deployers configure override points? Is there a stop/halt mechanism? "
-                                            f"Frame this as a design/architecture question, not an operational one."
-                                        )
-                                    else:
-                                        directive = (
-                                            f"{transition}The user indicated they do NOT have "
-                                            f"{info.get('requirement', '')} (fact '{fact_key}' = '{fact_value}'). "
-                                            f"This is a compliance gap under {info.get('article', '')}.{workflow_ref} Explain why "
-                                            f"this matters for their specific system, then ask conversationally whether "
-                                            f"they have plans to implement {info.get('short', '')} or if there's a "
-                                            f"reason it's not in place. Be understanding, not accusatory."
-                                        )
-                                    directive_topic = fact_key
-                                    break
-                                break  # One topic at a time
+                            if remediation_value == "":
+                                # First time flagging this gap
+                                transition = ""
+                                if just_resolved_topic:
+                                    prev_info = ARTICLE_INFO.get(just_resolved_topic, {})
+                                    transition = (
+                                        f"The user just resolved {prev_info.get('article', '')} — "
+                                        f"briefly acknowledge that before moving on. "
+                                    )
+                                workflow_ref = ""
+                                if workflow_steps:
+                                    workflow_ref = (
+                                        f" Their workflow is: {workflow_str}. "
+                                        f"Reference which specific step(s) need {info.get('short', '')}."
+                                    )
+                                if is_provider and fact_key == "human_oversight":
+                                    directive = (
+                                        f"{transition}The user's system does NOT currently support human oversight "
+                                        f"(fact '{fact_key}' = '{fact_value}'). As a PROVIDER, Article 14 requires "
+                                        f"them to DESIGN the system so deployers can implement oversight.{workflow_ref} "
+                                        f"Ask: Does the system allow a human to review decisions before they're final? "
+                                        f"Can deployers configure override points? Is there a stop/halt mechanism? "
+                                        f"Frame this as a design/architecture question, not an operational one."
+                                    )
+                                else:
+                                    directive = (
+                                        f"{transition}The user indicated they do NOT have "
+                                        f"{info.get('requirement', '')} (fact '{fact_key}' = '{fact_value}'). "
+                                        f"This is a compliance gap under {info.get('article', '')}.{workflow_ref} Explain why "
+                                        f"this matters for their specific system, then ask conversationally whether "
+                                        f"they have plans to implement {info.get('short', '')} or if there's a "
+                                        f"reason it's not in place. Be understanding, not accusatory."
+                                    )
+                                directive_topic = fact_key
+                                break
+                            break  # One topic at a time
 
             # --- Non-HIGH risk obligation gaps ---
             if not directive and risk_level != "HIGH" and obligations:
@@ -681,22 +681,22 @@ class GovernanceEngine:
 
             # --- State-aware directives (when no gap-specific directive was generated) ---
             if not directive:
-            needs_exemption_probe = risk_level == "PENDING_PROHIBITED"
-            
-            transparency_confirmed = False
-            if risk_level == "LIMITED":
+                needs_exemption_probe = risk_level == "PENDING_PROHIBITED"
+
+                transparency_confirmed = False
+                if risk_level == "LIMITED":
                     if facts.get("transparency", "").lower() == "present" or facts.get("article_50_notice", "").lower() == "yes":
-                    transparency_confirmed = True
-            
-            missing_mandatory_topics = []
-            high_risk_complete = False
+                        transparency_confirmed = True
+
+                missing_mandatory_topics = []
+                high_risk_complete = False
                 report_ready = False
-            if risk_level == "HIGH":
+                if risk_level == "HIGH":
                     obligations_list = obligations or []
-                missing_mandatory_topics = get_missing_mandatory_topics(facts, obligations_list)
-                high_risk_complete = can_complete_high_risk_assessment(facts, obligations_list)
-                report_ready = all_high_priority_completed and (current_state == InterviewState.ASSESSMENT or high_risk_complete)
-            
+                    missing_mandatory_topics = get_missing_mandatory_topics(facts, obligations_list)
+                    high_risk_complete = can_complete_high_risk_assessment(facts, obligations_list)
+                    report_ready = all_high_priority_completed and (current_state == InterviewState.ASSESSMENT or high_risk_complete)
+
                 # --- Report blocker explanation ---
                 # If the user explicitly asks for the report but topics are unresolved,
                 # explain exactly what's blocking instead of deflecting.
@@ -714,14 +714,14 @@ class GovernanceEngine:
                             f"Be empathetic — acknowledge they want to move forward — but firm about requirements. "
                             f"Suggest addressing the easiest/quickest topic first to make progress."
                         )
-                
+
                 if not directive and risk_level == "UNACCEPTABLE":
-            blocked_message = ""
+                    blocked_message = ""
                     if warnings:
                         for w in warnings:
                             if "BLOCKED:" in str(w):
                                 blocked_message = str(w).replace("BLOCKED:", "").strip()
-                        break
+                                break
                     directive = (
                         f"This system has been classified as PROHIBITED under Article 5 of the EU AI Act. "
                         f"{blocked_message if blocked_message else 'The use case is illegal in the EU.'} "
