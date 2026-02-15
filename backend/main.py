@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 # Import routers
-from routers import interview, audit, workflow
+from routers import interview, audit, workflow, dashboard
 from database import init_db
 
 # Initialize DB on startup
@@ -21,6 +21,7 @@ app.add_middleware(
 app.include_router(interview.router, prefix="/interview", tags=["Governance"])
 app.include_router(audit.router, prefix="/audit", tags=["Audit"])
 app.include_router(workflow.router, prefix="/interview", tags=["Workflows"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 
 @app.get("/")
 def read_root():

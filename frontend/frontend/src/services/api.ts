@@ -138,3 +138,11 @@ export const GovernanceService = {
     return response.data;
   }
 };
+
+export const DashboardService = {
+  getStats: async (getToken?: () => Promise<string | null>) => {
+    const headers = await getAuthHeaders(getToken);
+    const response = await axios.get(`${API_URL}/dashboard/stats`, { headers });
+    return response.data;
+  },
+};

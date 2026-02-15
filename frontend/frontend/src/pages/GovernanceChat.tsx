@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from "./../components/ui/card";
 import { Button } from "./../components/ui/button";
 import { Input } from "./../components/ui/input";
+import { Textarea } from "./../components/ui/textarea";
 import { Badge } from "./../components/ui/badge";
 import { ScrollArea } from "./../components/ui/scroll-area";
 import { AlertTriangle, Shield, FileText, Send, Bot, Activity, TrendingUp, History, Download, Plus } from "lucide-react";
@@ -10,6 +11,7 @@ import { Link } from "react-router-dom";
 import { GovernanceService } from "./../services/api";
 import { useAuth } from "@clerk/clerk-react";
 import { WorkflowVisualizer } from "./../components/WorkflowVisualizer";
+import ReactMarkdown from 'react-markdown';
 
 export function GovernanceChat() {
   const { getToken } = useAuth();
@@ -57,6 +59,7 @@ export function GovernanceChat() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-scroll to bottom of chat when messages change or loading state changes
   useEffect(() => {
@@ -329,6 +332,10 @@ export function GovernanceChat() {
 
     const userMsg = input;
     setInput("");
+    // Reset textarea height back to single row after sending
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
     setLoading(true);
 
@@ -527,11 +534,26 @@ export function GovernanceChat() {
                     ? 'bg-blue-600 text-white rounded-br-none'
                     : 'bg-slate-100 text-slate-800 rounded-bl-none border border-slate-200 shadow-sm'
                     }`}>
-                    {/* Markdown-style rendering for Bot */}
+                    {/* Markdown rendering for Bot messages */}
                     {m.sender === 'bot' ? (
-                      <div className="whitespace-pre-wrap">{m.text}</div>
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => <p className="my-1">{children}</p>,
+                          strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                          ul: ({ children }) => <ul className="list-disc pl-4 my-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal pl-4 my-1">{children}</ol>,
+                          li: ({ children }) => <li className="my-0.5">{children}</li>,
+                          h1: ({ children }) => <h1 className="text-base font-bold mt-2 mb-1">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-sm font-bold mt-2 mb-1">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-sm font-semibold mt-1 mb-0.5">{children}</h3>,
+                          code: ({ children }) => <code className="bg-slate-200 px-1 rounded text-xs">{children}</code>,
+                        }}
+                      >
+                        {m.text}
+                      </ReactMarkdown>
                     ) : (
-                      m.text
+                      <div className="whitespace-pre-wrap">{m.text}</div>
                     )}
                   </div>
                 </div>
@@ -554,15 +576,29 @@ export function GovernanceChat() {
                 This chat has been closed. Please start a new assessment for a different use case.
               </div>
             )}
-            <div className="flex gap-2">
-              <Input
-                placeholder={currentState === "TERMINATED" ? "Chat closed" : "Type your answer..."}
+            <div className="flex gap-2 items-end">
+              <Textarea
+                ref={textareaRef}
+                placeholder={currentState === "TERMINATED" ? "Chat closed" : "Type your answer... (Shift+Enter for new line)"}
                 value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !(currentState === "TERMINATED") && handleSend()}
+                onChange={e => {
+                  setInput(e.target.value);
+                  // Auto-resize: reset then grow to content
+                  e.target.style.height = 'auto';
+                  e.target.style.height = e.target.scrollHeight + 'px';
+                }}
+                onKeyDown={e => {
+                  // Enter sends, Shift+Enter inserts newline
+                  if (e.key === 'Enter' && !e.shiftKey && !(currentState === "TERMINATED")) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                rows={1}
+                className="resize-none min-h-[40px] max-h-[160px] overflow-y-auto"
                 disabled={loading || currentState === "TERMINATED"}
               />
-              <Button onClick={handleSend} disabled={loading || currentState === "TERMINATED"} size="icon">
+              <Button onClick={handleSend} disabled={loading || currentState === "TERMINATED"} size="icon" className="shrink-0">
                 <Send className="h-4 w-4" />
               </Button>
             </div>
