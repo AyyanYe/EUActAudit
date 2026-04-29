@@ -11,9 +11,11 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    # WARNING: allow_origins=["*"] is insecure for production.
-    # When deploying, replace "*" with your actual frontend domain(s).
-    allow_origins=["*"],
+    # Specific origins are required when allow_credentials=True
+    allow_origins=[
+        "http://localhost:5173",
+        "https://auditgeniuseu.netlify.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
