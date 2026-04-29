@@ -316,11 +316,11 @@ For practices that *might* be prohibited (e.g. emotion recognition in education/
 
 ## 12. Deployment and Environment
 
-- **Frontend:** Built with `npm run build` (Vite); output `dist/`. Deployed on **Netlify** (or Vercel): base directory `AI-Auditor/frontend/frontend`, build command `npm run build`, publish `dist`. Env vars: `VITE_API_URL`, `VITE_CLERK_PUBLISHABLE_KEY`. SPA redirect: all routes → index.html.
+- **Frontend:** Built with `npm run build` (Vite); output `dist/`. Deployed on **Netlify** (or Vercel): base directory `AI-Auditor/frontend`, build command `npm run build`, publish `dist`. Env vars: `VITE_API_URL`, `VITE_CLERK_PUBLISHABLE_KEY`. SPA redirect: all routes → index.html.
 - **Backend:** Python 3.x (e.g. 3.12+); `uvicorn main:app --host 0.0.0.0 --port $PORT`. Deployed on **Railway** (or Render, Fly.io): root `AI-Auditor/backend`, start command as above. Env: `DATABASE_URL`, `OPENROUTER_API_KEY`, `CLERK_SECRET_KEY` (if used server-side), etc.
 - **Database:** PostgreSQL (e.g. Neon); `DATABASE_URL` in backend env.
 - **RAG:** Ensure `eu_ai_act_articles.json` is present (run `python ingest_eu_ai_act.py` once) or shipped with the backend; vector_store loads it at first use.
 
 ---
 
-*End of document. For implementation details, refer to the source files under `backend/` and `frontend/frontend/`.*
+*End of document. For implementation details, refer to the source files under `backend/` and `frontend/`.*

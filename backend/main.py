@@ -11,6 +11,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
+    # WARNING: allow_origins=["*"] is insecure for production.
+    # When deploying, replace "*" with your actual frontend domain(s).
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],

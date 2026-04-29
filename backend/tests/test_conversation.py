@@ -7,12 +7,13 @@ import requests
 import json
 import sys
 import io
+import os
 
 # Fix Windows console encoding
 if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-API_URL = "http://localhost:8000"
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 def test_conversation():
     """Test the conversation flow that was causing loops."""

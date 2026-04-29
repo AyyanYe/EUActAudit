@@ -50,7 +50,6 @@ export function Reports() {
         // Load governance chat projects
         try {
           const governanceData = await GovernanceService.listProjects(getToken);
-          console.log("Governance projects loaded:", governanceData);
           setGovernanceProjects(governanceData.projects || []);
         } catch (e) {
           console.error("Failed to load governance projects:", e);

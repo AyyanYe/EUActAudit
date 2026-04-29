@@ -4,6 +4,7 @@
 # dotenv files (local secrets/config)
 .env
 .env.*
+!.env.example
 *.local
 
 # -----------------------

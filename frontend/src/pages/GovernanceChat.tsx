@@ -118,18 +118,13 @@ export function GovernanceChat() {
 
   // Debug: Log messages changes
   useEffect(() => {
-    console.log('Messages state updated:', messages);
   }, [messages]);
 
   // Load projects function - called only when user clicks "View History"
   const loadProjects = async () => {
     setLoadingProjects(true);
     try {
-      console.log('Loading projects with token:', !!getToken);
       const data = await GovernanceService.listProjects(getToken);
-      console.log('API Response:', data); // CRITICAL: Log full API response
-      console.log('Projects loaded:', data.projects?.length || 0, 'projects');
-      console.log('Projects data:', data.projects);
       setProjects(data.projects || []);
 
       if ((data.projects || []).length === 0) {
@@ -139,7 +134,6 @@ export function GovernanceChat() {
         console.warn('3. Database connection issue');
         console.warn('4. All projects are filtered out by user_id check');
       } else {
-        console.log('Successfully loaded projects:', data.projects.map((p: { id: number, name: string }) => ({ id: p.id, name: p.name })));
       }
     } catch (e) {
       console.error('Failed to load projects:', e);
@@ -174,13 +168,9 @@ export function GovernanceChat() {
 
   // Load existing project
   const loadProject = async (projectId: number) => {
-    console.log('loadProject called with projectId:', projectId);
     setLoading(true);
     try {
-      console.log('Loading project:', projectId, 'with token:', !!getToken);
       const data = await GovernanceService.getProject(projectId, getToken);
-      console.log('Loaded project data:', data);
-      console.log('Messages count:', data.messages?.length || 0);
 
       if (!data || !data.project) {
         throw new Error('Invalid project data received from server');
@@ -194,7 +184,6 @@ export function GovernanceChat() {
         text: m.message || m.text || ''
       }));
 
-      console.log('Loaded messages:', loadedMessages);
 
       // If no messages but project is in INIT state, show initial message
       if (loadedMessages.length === 0 && data.project.interview_state === "INIT") {
@@ -218,7 +207,6 @@ export function GovernanceChat() {
       setShowHistory(false); // Hide history view first
       setStarted(true); // Then show the chat interface
 
-      console.log('Project loaded successfully. State: started=true, showHistory=false');
     } catch (e) {
       console.error('Failed to load project:', e);
       console.error('Error details:', e);
@@ -235,7 +223,6 @@ export function GovernanceChat() {
     if (projectParam) {
       const projectIdFromUrl = parseInt(projectParam, 10);
       if (!isNaN(projectIdFromUrl) && projectIdFromUrl !== projectId) {
-        console.log('Project ID found in URL:', projectIdFromUrl);
         loadProject(projectIdFromUrl);
         // Clear the query parameter after loading
         setSearchParams({});
@@ -255,8 +242,6 @@ export function GovernanceChat() {
     setLoading(true);
 
     try {
-      console.log('Starting interview with:', { projectName, projectDesc });
-      console.log('getToken available:', !!getToken);
 
       // Try to get token first to verify it works (with timeout)
       if (getToken) {
@@ -265,7 +250,6 @@ export function GovernanceChat() {
             getToken(),
             new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000))
           ]);
-          console.log('Token retrieved:', !!testToken);
           if (!testToken) {
             console.warn('Token retrieval timed out or returned null');
           }
@@ -275,7 +259,6 @@ export function GovernanceChat() {
       }
 
       const data = await GovernanceService.startInterview(projectName, projectDesc, getToken);
-      console.log('Interview started successfully:', data);
 
       if (!data || !data.project_id) {
         throw new Error('Invalid response from server: missing project_id');
@@ -287,10 +270,8 @@ export function GovernanceChat() {
 
       const initialMessage = data.message || "I have created your profile. To begin, please describe the AI system you are building or using. What is its main purpose?";
 
-      console.log('Setting initial message:', initialMessage);
       setProjectId(data.project_id);
       setMessages([{ sender: 'bot', text: initialMessage }]);
-      console.log('Messages state set:', [{ sender: 'bot', text: initialMessage }]);
       setCurrentState(data.state || "INIT");
       setConfidence(data.confidence || "LOW");
       setWorkflowSteps(Array.isArray(data.workflow_steps) ? data.workflow_steps : []);
@@ -418,7 +399,6 @@ export function GovernanceChat() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        console.log('Project clicked:', project.id, project.name);
                         loadProject(project.id);
                       }}
                     >
@@ -517,7 +497,6 @@ export function GovernanceChat() {
                 const viewport = node.querySelector('[data-radix-scroll-area-viewport]') as HTMLElement;
                 if (viewport) {
                   viewportRef.current = viewport;
-                  console.log('Viewport cached for autoscroll');
                 }
               }
             }}

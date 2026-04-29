@@ -13,9 +13,11 @@
 cd F:\AI_Genius\AI-Auditor\backend
 ```
 
-### 2. Install Dependencies (if not already done)
+### 2. Set Up Virtual Environment & Install Dependencies
 ```powershell
-py -m pip install fastapi uvicorn sqlalchemy python-dotenv langchain langchain-openai langchain-core openai --no-cache-dir
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
 ### 3. Environment Variables
@@ -25,8 +27,9 @@ OPENROUTER_API_KEY=your_key_here
 ```
 
 ### 4. Start Backend Server
+Ensure your virtual environment is activated, then run:
 ```powershell
-py -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 The backend will be available at: **http://localhost:8000**
@@ -36,7 +39,7 @@ API Documentation: **http://localhost:8000/docs**
 
 ### 1. Navigate to Frontend Directory
 ```powershell
-cd F:\AI_Genius\AI-Auditor\frontend\frontend
+cd F:\AI_Genius\AI-Auditor\frontend
 ```
 
 ### 2. Install Dependencies (if not already done)
@@ -45,7 +48,7 @@ npm install
 ```
 
 ### 3. Environment Variables
-Create a `.env` file in the `frontend/frontend` directory with:
+Create a `.env` file in the `frontend` directory with:
 ```
 VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key_here
 VITE_API_URL=http://localhost:8000
@@ -64,7 +67,7 @@ The frontend will be available at: **http://localhost:5173**
 
 ### Backend Issues
 - **Port 8000 already in use**: Change the port in the uvicorn command: `--port 8001`
-- **Module not found**: Run `py -m pip install -r requirements.txt`
+- **Module not found**: Make sure your virtual environment is activated (`.\venv\Scripts\activate`) and run `pip install -r requirements.txt`
 - **Database errors**: The database will be created automatically on first run
 
 ### Frontend Issues
@@ -79,12 +82,13 @@ Open two terminal windows:
 **Terminal 1 - Backend:**
 ```powershell
 cd F:\AI_Genius\AI-Auditor\backend
-py -m uvicorn main:app --reload --port 8000
+.\venv\Scripts\activate
+uvicorn main:app --reload --port 8000
 ```
 
 **Terminal 2 - Frontend:**
 ```powershell
-cd F:\AI_Genius\AI-Auditor\frontend\frontend
+cd F:\AI_Genius\AI-Auditor\frontend
 npm run dev
 ```
 

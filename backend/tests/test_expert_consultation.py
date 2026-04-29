@@ -1,6 +1,6 @@
 """
 Tests for Expert Consultation: dialogue memory, stuck detection, extraction normalization.
-Run: python backend/test_expert_consultation.py   or   pytest backend/test_expert_consultation.py -v
+Run: python backend/tests/test_expert_consultation.py   or   pytest backend/tests/test_expert_consultation.py -v
 """
 import sys
 import os

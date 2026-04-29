@@ -54,11 +54,10 @@ STEP 1: BACKEND SETUP
 
 2. Create and activate a virtual environment (optional but recommended):
    $ python -m venv venv
-   $ source venv/bin/activate  (On Windows: venv\Scripts\activate)
+   $ source venv/bin/activate  (On Windows PowerShell: .\venv\Scripts\activate)
 
 3. Install dependencies:
-   $ pip install fastapi uvicorn openai langchain-openai langchain-anthropic \
-     langchain-google-genai python-multipart reportlab numpy scipy textblob requests
+   $ pip install -r requirements.txt
 
 4. Download NLP corpora for TextBlob:
    $ python -m textblob.download_corpora
