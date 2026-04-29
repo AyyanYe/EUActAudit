@@ -1,148 +1,53 @@
-### PROJECT OVERVIEW
-----------------
-AuditGenius is a comprehensive AI Compliance Auditing System designed to evaluate 
-AI models (LLMs) against the requirements of the EU AI Act. It uses a "Hybrid 
-Evaluation Engine" that combines deterministic mathematical formulas with 
-LLM-based judging to scientifically measure bias, fairness, and transparency.
+# 🇪🇺 AuditGenius: EU AI Act Compliance Auditor
 
-Key Capabilities:
-1. Automated Risk Assessment: Classifies use cases (High, Limited, Minimal Risk)
-   based on Annex III of the EU AI Act.
-2. Counterfactual Testing: Generates pairs of prompts (e.g., "Resume for John" 
-   vs. "Resume for Jane") to trap models into revealing bias.
-3. Hybrid Scoring System: Calculates compliance scores using a weighted average:
-   - 50% Mathematical Analysis (Cosine Similarity, Sentiment, Length Ratios).
-   - 50% AI "Judge" Evaluation (GPT-4 grading the fairness).
-4. Multi-Model Support: Capable of auditing GPT-3.5, GPT-4, Claude 3, and 
-   Gemini 1.5 Pro.
-5. Evidence Recording: Stores detailed logs in SQLite and generates PDF 
-   Compliance Certificates.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![React](https://img.shields.io/badge/react-18.x-61dafb.svg)](https://reactjs.org/)
 
-------------------------------------------------------------------------------
-TECHNICAL STACK
-----------------
-[Frontend]
-- Framework: React (Vite) + TypeScript
-- Styling: Tailwind CSS
-- Components: Shadcn/UI
-- Visualization: Recharts
+AuditGenius is a comprehensive, open-source AI Governance and Compliance Auditing System designed to evaluate AI models (LLMs) against the strict requirements of the 2025 EU AI Act. 
 
-[Backend]
-- Framework: FastAPI (Python)
-- Database: SQLite
-- AI Orchestration: LangChain
-- Math/NLP: NumPy, SciPy, TextBlob
-- PDF Generation: ReportLab
+It uses an advanced **Hybrid Evaluation Engine** that combines deterministic mathematical formulas with LLM-based "Judge" evaluations to scientifically highlight key compliance issues in your workflow and provide actionable advice on how to fix them, ensuring your AI systems are safe, ethical, and legally compliant.
 
-------------------------------------------------------------------------------
-PREREQUISITES
-----------------
-1. Node.js (v18+)
-2. Python (v3.10+)
-3. API Keys (at least one required):
-   - OpenAI API Key (Required for the "Judge" and Embeddings)
-   - Anthropic API Key (Optional, for auditing Claude)
-   - Google Gemini API Key (Optional, for auditing Gemini)
+---
 
-------------------------------------------------------------------------------
-INSTALLATION & SETUP
-----------------
+##  Documentation Directory
 
-STEP 1: BACKEND SETUP
-1. Open a terminal and navigate to the backend folder:
-   $ cd backend
+To keep this repository clean and organized, our documentation is split into specific guides. Please refer to the documents below for detailed information:
 
-2. Create and activate a virtual environment (optional but recommended):
-   $ python -m venv venv
-   $ source venv/bin/activate  (On Windows PowerShell: .\venv\Scripts\activate)
+- **[Startup Guide & Installation](STARTUP_GUIDE.md):** Step-by-step instructions for running the frontend and backend locally.
+- **[Project Architecture & Explanation](PROJECT_EXPLANATION.md):** Deep dive into how the Hybrid Engine, State Machine, and Database interact.
+- **[Project Context & Goals](PROJECT_CONTEXT.md):** Understand the vision, the EU AI Act alignment, and the problem this software solves.
+- **[Clerk Authentication Setup](CLERK_SETUP.md):** Instructions for configuring the Clerk auth system for the frontend.
+- **[Contributing Guidelines](CONTRIBUTING.md):** Read this before making a Pull Request! Includes our Code of Conduct and branching rules.
 
-3. Install dependencies:
-   $ pip install -r requirements.txt
+---
 
-4. Download NLP corpora for TextBlob:
-   $ python -m textblob.download_corpora
+## Key Capabilities
 
-5. Start the server:
-   $ uvicorn main:app --reload
+1. **Automated Risk Assessment:** Classifies use cases (High, Limited, Minimal Risk) based on Annex III of the EU AI Act.
+2. **Deterministic State Machine Intake:** Guides users through INIT → INTAKE → DISCOVERY → CHECKPOINT → ASSESSMENT to gather project facts.
+3. **Counterfactual Testing:** Generates pairs of prompts (e.g., "Resume for John" vs. "Resume for Jane") to trap models into revealing hidden biases.
+4. **Actionable Compliance Insights:** Rather than generating arbitrary "compliance scores", the Hybrid Engine highlights specific compliance gaps in your workflow and provides actionable, step-by-step advice on how to fix them.
+5. **Multi-Model Support:** Capable of auditing targets via OpenRouter (GPT-4o, Claude 3, Gemini, etc.).
+6. **Evidence Recording:** Stores detailed logs in SQLite/PostgreSQL and generates downloadable PDF Compliance Certificates.
 
-   > Server will run at: http://localhost:8000
-   > API Documentation: http://localhost:8000/docs
+---
 
-STEP 2: FRONTEND SETUP
-1. Open a new terminal and navigate to the frontend folder:
-   $ cd frontend
+## Technical Stack
 
-2. Install dependencies:
-   $ npm install
+- **Frontend:** React (Vite), TypeScript, Tailwind CSS, Shadcn/UI, Recharts.
+- **Backend:** FastAPI (Python), SQLAlchemy, LangChain.
+- **AI Orchestration:** OpenRouter, OpenAI.
+- **Math/NLP:** NumPy, SciPy, TextBlob.
 
-3. Configure the API URL (Crucial for Cloud IDEs like Codespaces):
-   - Open `src/services/api.ts`
-   - If running locally: Ensure API_URL is 'http://localhost:8000'
-   - If on Codespaces: Copy your Public Backend Port URL (no trailing slash).
+---
 
-4. Start the application:
-   $ npm run dev
+## Credits & Acknowledgements
 
-   > Application will run at: http://localhost:5173
+**Author & Maintainer:** Ayyan Ahmed
 
-------------------------------------------------------------------------------
-HOW TO RUN AN AUDIT
-----------------
-1. Open the Dashboard (http://localhost:5173).
-2. Click "Run Audit" in the sidebar.
-3. Step 1: Configuration
-   - Enter a system description (e.g., "A loan approval AI...").
-   - Type metrics to test (e.g., "Gender Bias", "Socioeconomic Bias").
-   - Select the Target Model (e.g., GPT-3.5-Turbo).
-   - Enter your API Key for that model.
-4. Click "Analyze Risk". The system will auto-determine the Risk Level.
-5. Click "Start Audit".
-6. Wait for the "Hybrid Evaluation" to finish (check backend logs for progress).
-7. View the results on the Dashboard and download the PDF Report.
+This software originally started as a course project at **TU Darmstadt**, Germany, developed under the supervision of [Agoston Torok](https://github.com/agostontorok). It has since been expanded and open-sourced to provide free compliance tools for the global developer community. 
 
-------------------------------------------------------------------------------
-PROJECT STRUCTURE
-----------------
-```
-/backend
-  /core
-    - risk_logic.py       # Logic for EU AI Act categorization
-    - evaluation_engine.py# The Hybrid Engine (Generates pairs, runs tests)
-  /routers
-    - audit.py            # API endpoints for running tests
-    - compliance.py       # API endpoints for risk assessment
-  /utils
-    - math_evaluator.py   # Math formulas (Cosine sim, Sentiment, etc.)
-  - database.py           # SQLite connection and schema
-  - main.py               # FastAPI entry point
+---
 
-/frontend
-  /src
-    /components           # Shadcn UI components
-    /pages
-      - Dashboard.tsx     # Main stats view
-      - AuditRun.tsx      # The Audit Wizard
-      - Reports.tsx       # Historical data table
-    /services
-      - api.ts            # Axios configuration
-    - App.tsx             # Routing
-```
-
-------------------------------------------------------------------------------
-TROUBLESHOOTING
-----------------
-1. "Connection Refused" / Network Errors:
-   - Ensure the Backend terminal is running.
-   - If using GitHub Codespaces, ensure Port 8000 visibility is set to PUBLIC.
-   - Check `frontend/src/services/api.ts` for trailing slashes in the URL.
-
-2. "Module Not Found":
-   - Ensure you installed the new math libraries in the backend:
-     `pip install numpy scipy textblob`
-
-3. "Model Not Found" / API Errors:
-   - Ensure you selected the correct model in the dropdown.
-   - Verify the API Key corresponds to the provider (e.g., don't use an OpenAI 
-     key for Claude).
-
-==============================================================================
+*For support, feature requests, or bug reports, please open an Issue on GitHub.*

@@ -6,7 +6,7 @@
 
 **Project Name:** AuditGenius (formerly AI-Auditor)
 
-**Core Value Proposition:** An automated Governance, Risk, and Compliance (GRC) platform specifically designed for EU AI Act (2025) compliance.
+**Core Value Proposition:** An automated Governance, Risk, and Compliance (GRC) platform specifically designed for EU AI Act (2025) compliance. Instead of calculating arbitrary compliance scores, it highlights key compliance issues in company workflows and provides actionable advice on how to fix them.
 
 **Key Innovation:** Transforms generic technical audits into a "Governance State Machine" that interviews users to build a Legal Compliance Profile, distinguishing between "High Risk" (Annex III) and "Limited Risk" (Article 50) AI systems.
 
