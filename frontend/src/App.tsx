@@ -25,7 +25,7 @@ function App() {
             <aside className="w-64 bg-slate-900 text-white flex flex-col fixed h-full shadow-xl z-50">
               <div className="p-6 border-b border-slate-700">
                 <div className="flex items-center gap-2 font-bold text-xl tracking-tight">
-                  <ShieldAlert className="text-blue-400" /> AuditGenius
+                  <ShieldAlert className="text-blue-400" /> EUActAudit
                 </div>
               </div>
               

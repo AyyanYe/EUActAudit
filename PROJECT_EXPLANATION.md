@@ -1,6 +1,6 @@
-# AuditGenius — Complete Project Explanation
+# EUActAudit — Complete Project Explanation
 
-This document describes the **AuditGenius** application in full: purpose, features, user workflow, architecture, data model, and implementation details. It is intended for presentations, onboarding, and technical reference.
+This document describes the **EUActAudit** application in full: purpose, features, user workflow, architecture, data model, and implementation details. It is intended for presentations, onboarding, and technical reference.
 
 ---
 
@@ -23,7 +23,7 @@ This document describes the **AuditGenius** application in full: purpose, featur
 
 ## 1. Project Overview
 
-**AuditGenius** is an AI-driven **EU AI Act Compliance Consultant**. It helps companies building or deploying AI systems in the European market to:
+**EUActAudit** is an AI-driven **EU AI Act Compliance Consultant**. It helps companies building or deploying AI systems in the European market to:
 
 - **Classify** their system into the regulation’s risk buckets (Prohibited, High-Risk, Limited Risk, Minimal Risk).
 - **Run a conversational audit** that gathers business context, operational workflow, and evidence for compliance.

@@ -1,10 +1,10 @@
-# 🇪🇺 AuditGenius: EU AI Act Compliance Auditor
+# 🇪🇺 EUActAudit: EU AI Act Compliance Auditor
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![React](https://img.shields.io/badge/react-18.x-61dafb.svg)](https://reactjs.org/)
 
-AuditGenius is a comprehensive, open-source AI Governance and Compliance Auditing System designed to evaluate AI models (LLMs) against the strict requirements of the 2025 EU AI Act. 
+EUActAudit is a comprehensive, open-source AI Governance and Compliance Auditing System designed to evaluate AI models (LLMs) against the strict requirements of the 2025 EU AI Act. 
 
 It uses an advanced **Hybrid Evaluation Engine** that combines deterministic mathematical formulas with LLM-based "Judge" evaluations to scientifically highlight key compliance issues in your workflow and provide actionable advice on how to fix them, ensuring your AI systems are safe, ethical, and legally compliant.
 

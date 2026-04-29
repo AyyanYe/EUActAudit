@@ -21,7 +21,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="h-8 w-8 bg-blue-600 rounded-lg flex items-center justify-center">
           <ShieldCheck className="h-5 w-5 text-white" />
         </div>
-        <span className="text-xl font-bold">AuditGenius</span>
+        <span className="text-xl font-bold">EUActAudit</span>
       </div>
       <nav className="px-2 space-y-1 flex-1">
         {menuItems.map((item) => (
@@ -60,7 +60,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       {/* Main Content */}
       <div className="flex-1 md:ml-64 flex flex-col min-h-screen transition-all duration-300">
         <div className="md:hidden sticky top-0 z-40 bg-white border-b p-4 flex items-center justify-between shadow-sm">
-            <span className="font-bold text-lg text-slate-900">AuditGenius</span>
+            <span className="font-bold text-lg text-slate-900">EUActAudit</span>
             <Sheet open={open} onOpenChange={setOpen}>
               <SheetTrigger asChild>
                 <Button variant="ghost" size="icon"><Menu className="h-6 w-6" /></Button>

@@ -18,7 +18,7 @@ export function PrivacyPolicy() {
         </CardHeader>
         <CardContent className="space-y-4 text-slate-700 text-sm leading-relaxed">
           <p>
-            AuditGenius (“we”, “our”, or “us”) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, store, and protect information when you use our AI-powered compliance assessment and audit services.
+            EUActAudit (“we”, “our”, or “us”) is committed to protecting your privacy. This Privacy Policy explains how we collect, use, store, and protect information when you use our AI-powered compliance assessment and audit services.
           </p>
         </CardContent>
       </Card>

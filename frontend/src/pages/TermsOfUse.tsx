@@ -35,7 +35,7 @@ export function TermsOfUse() {
         </CardHeader>
         <CardContent className="space-y-4 text-slate-700 text-sm leading-relaxed">
           <p>
-            By accessing or using AuditGenius (“Service”), you agree to these Terms of Use. If you do not agree, do not use the Service.
+            By accessing or using EUActAudit (“Service”), you agree to these Terms of Use. If you do not agree, do not use the Service.
           </p>
         </CardContent>
       </Card>

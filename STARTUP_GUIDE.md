@@ -1,4 +1,4 @@
-# Startup Guide - AuditGenius
+# Startup Guide - EUActAudit
 
 ## Prerequisites Check ✅
 

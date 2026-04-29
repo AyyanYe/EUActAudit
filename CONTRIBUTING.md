@@ -1,6 +1,6 @@
-# Contributing to AuditGenius
+# Contributing to EUActAudit
 
-First off, thank you for considering contributing to AuditGenius! It's people like you that make the open-source community such an amazing place to learn, inspire, and create.
+First off, thank you for considering contributing to EUActAudit! It's people like you that make the open-source community such an amazing place to learn, inspire, and create.
 
 We welcome contributions of all kinds: bug fixes, new features, documentation improvements, and feedback.
 
