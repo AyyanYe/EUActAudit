@@ -19,5 +19,8 @@ jobs:
       - id: pragent
         uses: Codium-ai/pr-agent@main
         env:
-          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_BASE_URL: "https://openrouter.ai/api/v1"
+          PR_REVIEWER__MODEL: "openrouter/meta-llama/llama-3-8b-instruct:free"
+          PR_DESCRIPTION__MODEL: "openrouter/meta-llama/llama-3-8b-instruct:free"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
