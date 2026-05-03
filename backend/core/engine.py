@@ -1,18 +1,30 @@
 import os
 import json
-from dotenv import load_dotenv # <--- IMPORT THIS
+from dotenv import load_dotenv  # <--- IMPORT THIS
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from core.risk_rules import evaluate_compliance_state
 from core.state_machine import StateMachine, InterviewState, ConfidenceLevel
-from core.high_risk_checklist import get_missing_mandatory_topics, get_topic_question, can_complete_high_risk_assessment
-from core.eu_ai_act_context import get_article_context_for_topic, get_article_context_for_query
+from core.high_risk_checklist import (
+    get_missing_mandatory_topics,
+    get_topic_question,
+    can_complete_high_risk_assessment,
+)
+from core.eu_ai_act_context import (
+    get_article_context_for_topic,
+    get_article_context_for_query,
+)
 from core.vector_store import identify_relevant_articles
 
 # <--- LOAD THE ENV FILE IMMEDIATELY ---
 load_dotenv()
 
-COMPLIANCE_KEYS_NORMALIZE = ["human_oversight", "data_governance", "accuracy_robustness", "record_keeping"]
+COMPLIANCE_KEYS_NORMALIZE = [
+    "human_oversight",
+    "data_governance",
+    "accuracy_robustness",
+    "record_keeping",
+]
 
 
 def normalize_compliance_facts(data: dict) -> None:
@@ -30,11 +42,19 @@ def normalize_compliance_facts(data: dict) -> None:
     confidence_scores = data.get("confidence_scores") or {}
     if isinstance(confidence_scores, dict):
         for key in COMPLIANCE_KEYS_NORMALIZE:
-            if key not in data or data[key] in ["yes", "no", "present", "absent", "planned", "planned_remediation"]:
+            if key not in data or data[key] in [
+                "yes",
+                "no",
+                "present",
+                "absent",
+                "planned",
+                "planned_remediation",
+            ]:
                 continue
             score = confidence_scores.get(key)
             if isinstance(score, (int, float)) and 0 <= score <= 100 and score < 60:
-                data[key] = "partial_or_unclear" 
+                data[key] = "partial_or_unclear"
+
 
 class GovernanceEngine:
     def __init__(self):
@@ -42,12 +62,12 @@ class GovernanceEngine:
         api_key = os.getenv("OPENROUTER_API_KEY")
         if not api_key:
             print("ERROR: OPENROUTER_API_KEY not found in environment!")
-        
+
         self.llm = ChatOpenAI(
             model="openai/gpt-4o",
             api_key=api_key,
             base_url="https://openrouter.ai/api/v1",
-            temperature=0.3
+            temperature=0.3,
         )
 
     async def extract_facts(self, history_text: str):
@@ -186,12 +206,12 @@ class GovernanceEngine:
         Include "confidence_scores" with a score for every extracted key.
         Example: {"domain": "recruitment", "role": "provider", "human_oversight": "partial_or_unclear", "confidence_scores": {"domain": 95, "role": 85, "human_oversight": 35, "data_governance": 80}, "workflow_steps": ["Resume Input", "Keyword Scan"]}
         """
-        
+
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Conversation History:\n{history_text}")
+            HumanMessage(content=f"Conversation History:\n{history_text}"),
         ]
-        
+
         try:
             response = await self.llm.ainvoke(messages)
             content = response.content.replace("```json", "").replace("```", "").strip()
@@ -241,9 +261,27 @@ class GovernanceEngine:
             from core.obligation_mapper import is_negative_value, is_planned_value
 
             # === CONSTANTS ===
-            RESOLVED_STATUSES = ["present", "planned_remediation", "future_implementation", "mitigated", "planned", "met"]
-            COMPLETED_OBLIGATION_STATUSES = ["present", "planned", "mitigated", "planned_remediation", "met"]
-            HIGH_RISK_TOPIC_ORDER = ["human_oversight", "data_governance", "accuracy_robustness", "record_keeping"]
+            RESOLVED_STATUSES = [
+                "present",
+                "planned_remediation",
+                "future_implementation",
+                "mitigated",
+                "planned",
+                "met",
+            ]
+            COMPLETED_OBLIGATION_STATUSES = [
+                "present",
+                "planned",
+                "mitigated",
+                "planned_remediation",
+                "met",
+            ]
+            HIGH_RISK_TOPIC_ORDER = [
+                "human_oversight",
+                "data_governance",
+                "accuracy_robustness",
+                "record_keeping",
+            ]
             FACT_KEY_TO_LABEL = {
                 "human_oversight": "Article 14 (Human Oversight)",
                 "data_governance": "Article 10 (Data Governance)",
@@ -257,10 +295,26 @@ class GovernanceEngine:
                 "ART_12": "record_keeping",
             }
             ARTICLE_INFO = {
-                "human_oversight": {"article": "Article 14", "requirement": "human oversight", "short": "a human-in-the-loop review mechanism where designated personnel can override or halt AI decisions"},
-                "data_governance": {"article": "Article 10", "requirement": "data governance and bias mitigation", "short": "bias testing and data quality measures for training data"},
-                "accuracy_robustness": {"article": "Article 15", "requirement": "accuracy, robustness, and cybersecurity", "short": "error rate monitoring and security measures"},
-                "record_keeping": {"article": "Article 12", "requirement": "record keeping and logging", "short": "automatic logging of system operations and decisions"},
+                "human_oversight": {
+                    "article": "Article 14",
+                    "requirement": "human oversight",
+                    "short": "a human-in-the-loop review mechanism where designated personnel can override or halt AI decisions",
+                },
+                "data_governance": {
+                    "article": "Article 10",
+                    "requirement": "data governance and bias mitigation",
+                    "short": "bias testing and data quality measures for training data",
+                },
+                "accuracy_robustness": {
+                    "article": "Article 15",
+                    "requirement": "accuracy, robustness, and cybersecurity",
+                    "short": "error rate monitoring and security measures",
+                },
+                "record_keeping": {
+                    "article": "Article 12",
+                    "requirement": "record keeping and logging",
+                    "short": "automatic logging of system operations and decisions",
+                },
             }
 
             # === BUILD OBLIGATION STATUS MAP ===
@@ -280,23 +334,41 @@ class GovernanceEngine:
             # === HELPER FUNCTIONS ===
             all_high_priority_completed = False
             if risk_level == "HIGH":
+
                 def _obligation_addressed(fk: str) -> bool:
                     status = obligation_status_by_fact.get(fk)
-                    if status in COMPLETED_OBLIGATION_STATUSES or status in RESOLVED_STATUSES:
+                    if (
+                        status in COMPLETED_OBLIGATION_STATUSES
+                        or status in RESOLVED_STATUSES
+                    ):
                         return True
                     val = (facts.get(fk) or "").strip().lower()
                     if fk == "human_oversight":
-                        return val in ["present", "planned", "yes"] or (facts.get("remediation_accepted") or "").strip().lower() == "yes"
+                        return (
+                            val in ["present", "planned", "yes"]
+                            or (facts.get("remediation_accepted") or "").strip().lower()
+                            == "yes"
+                        )
                     return val in ["yes", "present", "planned", "planned_remediation"]
-                all_high_priority_completed = all(_obligation_addressed(fk) for fk in HIGH_RISK_TOPIC_ORDER)
+
+                all_high_priority_completed = all(
+                    _obligation_addressed(fk) for fk in HIGH_RISK_TOPIC_ORDER
+                )
 
             def _topic_resolved(fact_key: str, f: dict) -> bool:
                 if obligation_status_by_fact.get(fact_key) in RESOLVED_STATUSES:
                     return True
                 val = (f.get(fact_key) or "").strip().lower()
                 if fact_key == "human_oversight":
-                    return val in ["present", "planned"] or (f.get("remediation_accepted") or "").strip().lower() == "yes"
-                return val in ["yes", "present", "planned_remediation", "planned"] or (f.get(f"{fact_key}_remediation") or "").strip().lower() == "yes"
+                    return (
+                        val in ["present", "planned"]
+                        or (f.get("remediation_accepted") or "").strip().lower()
+                        == "yes"
+                    )
+                return (
+                    val in ["yes", "present", "planned_remediation", "planned"]
+                    or (f.get(f"{fact_key}_remediation") or "").strip().lower() == "yes"
+                )
 
             def _topic_has_gap(fact_key: str, f: dict) -> bool:
                 if _topic_resolved(fact_key, f):
@@ -358,21 +430,48 @@ class GovernanceEngine:
                         "ART_43": ("ART_43", "Article 43 (Conformity Assessment)"),
                         "ART_14": ("human_oversight", "Article 14 (Human Oversight)"),
                         "ART_10": ("data_governance", "Article 10 (Data Governance)"),
-                        "ART_15": ("accuracy_robustness", "Article 15 (Accuracy & Robustness)"),
+                        "ART_15": (
+                            "accuracy_robustness",
+                            "Article 15 (Accuracy & Robustness)",
+                        ),
                         "ART_12": ("record_keeping", "Article 12 (Record Keeping)"),
                         "ART_50": ("transparency", "Article 50 (Transparency)"),
                         "ART_26": ("ART_26", "Article 26 (Deployer Obligations)"),
-                        "Article 16": ("ART_16", "Article 16 (Quality Management System)"),
+                        "Article 16": (
+                            "ART_16",
+                            "Article 16 (Quality Management System)",
+                        ),
                         "Article 43": ("ART_43", "Article 43 (Conformity Assessment)"),
-                        "Article 14": ("human_oversight", "Article 14 (Human Oversight)"),
-                        "Article 10": ("data_governance", "Article 10 (Data Governance)"),
-                        "Article 15": ("accuracy_robustness", "Article 15 (Accuracy & Robustness)"),
+                        "Article 14": (
+                            "human_oversight",
+                            "Article 14 (Human Oversight)",
+                        ),
+                        "Article 10": (
+                            "data_governance",
+                            "Article 10 (Data Governance)",
+                        ),
+                        "Article 15": (
+                            "accuracy_robustness",
+                            "Article 15 (Accuracy & Robustness)",
+                        ),
                         "Article 12": ("record_keeping", "Article 12 (Record Keeping)"),
                         "Article 50": ("transparency", "Article 50 (Transparency)"),
-                        "record_keeping": ("record_keeping", "Article 12 (Record Keeping)"),
-                        "data_governance": ("data_governance", "Article 10 (Data Governance)"),
-                        "human_oversight": ("human_oversight", "Article 14 (Human Oversight)"),
-                        "accuracy_robustness": ("accuracy_robustness", "Article 15 (Accuracy & Robustness)"),
+                        "record_keeping": (
+                            "record_keeping",
+                            "Article 12 (Record Keeping)",
+                        ),
+                        "data_governance": (
+                            "data_governance",
+                            "Article 10 (Data Governance)",
+                        ),
+                        "human_oversight": (
+                            "human_oversight",
+                            "Article 14 (Human Oversight)",
+                        ),
+                        "accuracy_robustness": (
+                            "accuracy_robustness",
+                            "Article 15 (Accuracy & Robustness)",
+                        ),
                     }
                     matched = asked_topic_map.get(user_asked)
                     if matched:
@@ -381,10 +480,19 @@ class GovernanceEngine:
                         ob_status = "unknown"
                         if obligations:
                             for ob in obligations:
-                                if isinstance(ob, dict) and (ob.get("code") == topic_key or ob.get("code") == user_asked):
-                                    ob_status = (ob.get("status") or "PENDING").strip().lower()
+                                if isinstance(ob, dict) and (
+                                    ob.get("code") == topic_key
+                                    or ob.get("code") == user_asked
+                                ):
+                                    ob_status = (
+                                        (ob.get("status") or "PENDING").strip().lower()
+                                    )
                                     break
-                        fact_val = (facts.get(topic_key) or "not yet discussed").strip().lower()
+                        fact_val = (
+                            (facts.get(topic_key) or "not yet discussed")
+                            .strip()
+                            .lower()
+                        )
                         directive = (
                             f"The user specifically asked about {topic_label}. Address their question directly. "
                             f"Current status: obligation='{ob_status}', fact='{fact_val}'. "
@@ -399,14 +507,26 @@ class GovernanceEngine:
             # Before using facts for compliance decisions, confirm any fact the system
             # is unsure about.  Only fires in CHECKPOINT / ASSESSMENT states (during
             # INTAKE / DISCOVERY facts are still being gathered, so it's too early).
-            if not directive and fact_confidences and current_state in [
-                InterviewState.CHECKPOINT, InterviewState.ASSESSMENT
-            ]:
+            if (
+                not directive
+                and fact_confidences
+                and current_state
+                in [InterviewState.CHECKPOINT, InterviewState.ASSESSMENT]
+            ):
                 from core.obligation_mapper import CONFIDENCE_THRESHOLD
+
                 _important_keys = [
-                    "domain", "role", "purpose", "data_type", "automation",
-                    "context", "human_oversight", "data_governance",
-                    "accuracy_robustness", "record_keeping", "transparency",
+                    "domain",
+                    "role",
+                    "purpose",
+                    "data_type",
+                    "automation",
+                    "context",
+                    "human_oversight",
+                    "data_governance",
+                    "accuracy_robustness",
+                    "record_keeping",
+                    "transparency",
                 ]
                 _fact_descriptions = {
                     "domain": "the industry / sector",
@@ -446,7 +566,10 @@ class GovernanceEngine:
                 human_oversight_state = facts.get("human_oversight", "").lower()
                 remediation_accepted = facts.get("remediation_accepted", "").lower()
 
-                if human_oversight_state in ["absent", "no"] and remediation_accepted == "":
+                if (
+                    human_oversight_state in ["absent", "no"]
+                    and remediation_accepted == ""
+                ):
                     role = facts.get("role", "").lower()
                     if role in ["provider", "builder"]:
                         directive = (
@@ -473,8 +596,16 @@ class GovernanceEngine:
                 # NOTE: "partial", "partial_or_unclear" → handled by sequential gap handler below
 
             # --- Context-aware: user just spoke about a topic with a gap ---
-            if not directive and risk_level == "HIGH" and last_updated_fact_key and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER:
-                if _topic_has_gap(last_updated_fact_key, facts) and stuck_on_topic != last_updated_fact_key:
+            if (
+                not directive
+                and risk_level == "HIGH"
+                and last_updated_fact_key
+                and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER
+            ):
+                if (
+                    _topic_has_gap(last_updated_fact_key, facts)
+                    and stuck_on_topic != last_updated_fact_key
+                ):
                     info = ARTICLE_INFO.get(last_updated_fact_key, {})
                     fact_val = (facts.get(last_updated_fact_key) or "").strip().lower()
                     workflow_ref = ""
@@ -495,20 +626,30 @@ class GovernanceEngine:
             # --- Sequential gap handling for HIGH risk (ROUND-ROBIN with topic parking) ---
             if not directive and risk_level == "HIGH" and obligations:
                 if all_high_priority_completed:
-                    print("[CLOSING] All high-priority obligations are present/planned; moving to closing phase.")
+                    print(
+                        "[CLOSING] All high-priority obligations are present/planned; moving to closing phase."
+                    )
                 else:
                     # ROUND-ROBIN: Start iteration after the last discussed topic (wrap around)
                     # This ensures all topics get cycled through even if some are stuck
                     parked_topic = (facts.get("parked_topic") or "").strip().lower()
-                    
+
                     # Determine start index for round-robin
                     start_idx = 0
-                    if last_updated_fact_key and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER:
-                        start_idx = (HIGH_RISK_TOPIC_ORDER.index(last_updated_fact_key) + 1) % len(HIGH_RISK_TOPIC_ORDER)
-                    
+                    if (
+                        last_updated_fact_key
+                        and last_updated_fact_key in HIGH_RISK_TOPIC_ORDER
+                    ):
+                        start_idx = (
+                            HIGH_RISK_TOPIC_ORDER.index(last_updated_fact_key) + 1
+                        ) % len(HIGH_RISK_TOPIC_ORDER)
+
                     # Build rotated order: start after last discussed topic, wrap around
-                    rotated_order = HIGH_RISK_TOPIC_ORDER[start_idx:] + HIGH_RISK_TOPIC_ORDER[:start_idx]
-                    
+                    rotated_order = (
+                        HIGH_RISK_TOPIC_ORDER[start_idx:]
+                        + HIGH_RISK_TOPIC_ORDER[:start_idx]
+                    )
+
                     # First pass: skip parked and auto-parked topics
                     # Second pass (if needed): include parked topics
                     for include_parked in [False, True]:
@@ -516,29 +657,53 @@ class GovernanceEngine:
                             break
                         for fact_key in rotated_order:
                             # TOPIC PARKING: skip parked topics on first pass
-                            is_parked = (parked_topic == fact_key)
+                            is_parked = parked_topic == fact_key
                             # AUTO-PARK: if asked 3+ times, treat as auto-parked
                             ask_count = topic_ask_count.get(fact_key, 0)
-                            is_auto_parked = (ask_count >= 3)
-                            
+                            is_auto_parked = ask_count >= 3
+
                             if not include_parked and (is_parked or is_auto_parked):
                                 continue
-                            
+
                         ob_status = obligation_status_by_fact.get(fact_key)
-                        if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
+                        if (
+                            ob_status in RESOLVED_STATUSES
+                            or ob_status in COMPLETED_OBLIGATION_STATUSES
+                        ):
                             continue
                         fact_value = (facts.get(fact_key) or "").strip().lower()
-                        if fact_value in ["yes", "present", "planned", "planned_remediation"]:
+                        if fact_value in [
+                            "yes",
+                            "present",
+                            "planned",
+                            "planned_remediation",
+                        ]:
                             continue
-                        if fact_key == "human_oversight" and (facts.get("remediation_accepted") or "").strip().lower() == "yes":
+                        if (
+                            fact_key == "human_oversight"
+                            and (facts.get("remediation_accepted") or "")
+                            .strip()
+                            .lower()
+                            == "yes"
+                        ):
                             continue
-                        remediation_key = "remediation_accepted" if fact_key == "human_oversight" else f"{fact_key}_remediation"
-                        remediation_value = (facts.get(remediation_key) or "").strip().lower()
-                        if is_planned_value(fact_value) or fact_value in ["planned_remediation", "planned"] or remediation_value == "yes":
+                        remediation_key = (
+                            "remediation_accepted"
+                            if fact_key == "human_oversight"
+                            else f"{fact_key}_remediation"
+                        )
+                        remediation_value = (
+                            (facts.get(remediation_key) or "").strip().lower()
+                        )
+                        if (
+                            is_planned_value(fact_value)
+                            or fact_value in ["planned_remediation", "planned"]
+                            or remediation_value == "yes"
+                        ):
                             continue
 
                         info = ARTICLE_INFO.get(fact_key, {})
-                        
+
                         # Provider-specific framing for human oversight
                         role = facts.get("role", "").lower()
                         is_provider = role in ["provider", "builder"]
@@ -570,7 +735,10 @@ class GovernanceEngine:
                                 for nk in rotated_order:
                                     if nk == fact_key:
                                         continue
-                                    if not _topic_resolved(nk, facts) and topic_ask_count.get(nk, 0) < 3:
+                                    if (
+                                        not _topic_resolved(nk, facts)
+                                        and topic_ask_count.get(nk, 0) < 3
+                                    ):
                                         next_topic = nk
                                         break
                                 if next_topic:
@@ -598,7 +766,9 @@ class GovernanceEngine:
                                 # First time flagging this gap
                                 transition = ""
                                 if just_resolved_topic:
-                                    prev_info = ARTICLE_INFO.get(just_resolved_topic, {})
+                                    prev_info = ARTICLE_INFO.get(
+                                        just_resolved_topic, {}
+                                    )
                                     transition = (
                                         f"The user just resolved {prev_info.get('article', '')} — "
                                         f"briefly acknowledge that before moving on. "
@@ -637,13 +807,18 @@ class GovernanceEngine:
                     if isinstance(obligation, dict):
                         ob_code = obligation.get("code", "")
                         ob_title = obligation.get("title", "Unknown")
-                        ob_status = (obligation.get("status") or "PENDING").strip().lower()
+                        ob_status = (
+                            (obligation.get("status") or "PENDING").strip().lower()
+                        )
                     else:
                         ob_code = str(obligation)
                         ob_title = ob_code
                         ob_status = "pending"
 
-                    if ob_status in RESOLVED_STATUSES or ob_status in COMPLETED_OBLIGATION_STATUSES:
+                    if (
+                        ob_status in RESOLVED_STATUSES
+                        or ob_status in COMPLETED_OBLIGATION_STATUSES
+                    ):
                         continue
 
                     if ob_status == "gap_detected":
@@ -660,15 +835,19 @@ class GovernanceEngine:
                             if oc == ob_code:
                                 fact_key = fk
                                 break
-                        
+
                         if fact_key:
                             fact_value = facts.get(fact_key, "").lower()
                             remediation_key = f"{fact_key}_remediation"
                             remediation_value = facts.get(remediation_key, "").lower()
 
-                            if fact_value in ["yes", "present"] or is_planned_value(fact_value) or remediation_value == "yes":
+                            if (
+                                fact_value in ["yes", "present"]
+                                or is_planned_value(fact_value)
+                                or remediation_value == "yes"
+                            ):
                                 continue
-                            
+
                             if not remediation_value:
                                 directive = (
                                     f"A compliance gap was detected for {ob_title} (obligation {ob_code}). "
@@ -685,7 +864,10 @@ class GovernanceEngine:
 
                 transparency_confirmed = False
                 if risk_level == "LIMITED":
-                    if facts.get("transparency", "").lower() == "present" or facts.get("article_50_notice", "").lower() == "yes":
+                    if (
+                        facts.get("transparency", "").lower() == "present"
+                        or facts.get("article_50_notice", "").lower() == "yes"
+                    ):
                         transparency_confirmed = True
 
                 missing_mandatory_topics = []
@@ -693,18 +875,32 @@ class GovernanceEngine:
                 report_ready = False
                 if risk_level == "HIGH":
                     obligations_list = obligations or []
-                    missing_mandatory_topics = get_missing_mandatory_topics(facts, obligations_list)
-                    high_risk_complete = can_complete_high_risk_assessment(facts, obligations_list)
-                    report_ready = all_high_priority_completed and (current_state == InterviewState.ASSESSMENT or high_risk_complete)
+                    missing_mandatory_topics = get_missing_mandatory_topics(
+                        facts, obligations_list
+                    )
+                    high_risk_complete = can_complete_high_risk_assessment(
+                        facts, obligations_list
+                    )
+                    report_ready = all_high_priority_completed and (
+                        current_state == InterviewState.ASSESSMENT or high_risk_complete
+                    )
 
                 # --- Report blocker explanation ---
                 # If the user explicitly asks for the report but topics are unresolved,
                 # explain exactly what's blocking instead of deflecting.
-                user_wants_report = (facts.get("user_wants_report") or "").strip().lower() == "yes"
+                user_wants_report = (
+                    facts.get("user_wants_report") or ""
+                ).strip().lower() == "yes"
                 if user_wants_report and risk_level == "HIGH" and not report_ready:
-                    blocking_topics = [fk for fk in HIGH_RISK_TOPIC_ORDER if not _topic_resolved(fk, facts)]
+                    blocking_topics = [
+                        fk
+                        for fk in HIGH_RISK_TOPIC_ORDER
+                        if not _topic_resolved(fk, facts)
+                    ]
                     if blocking_topics:
-                        blocking_labels = [FACT_KEY_TO_LABEL.get(fk, fk) for fk in blocking_topics]
+                        blocking_labels = [
+                            FACT_KEY_TO_LABEL.get(fk, fk) for fk in blocking_topics
+                        ]
                         directive = (
                             f"The user is asking for the Compliance Report, but {len(blocking_topics)} topic(s) "
                             f"still need resolution before we can generate it: {', '.join(blocking_labels)}. "
@@ -797,7 +993,9 @@ class GovernanceEngine:
                     )
                     directive_topic = next_topic
 
-                elif report_ready or (risk_level == "HIGH" and all_high_priority_completed):
+                elif report_ready or (
+                    risk_level == "HIGH" and all_high_priority_completed
+                ):
                     directive = (
                         "All mandatory compliance topics have been addressed. Give a brief, positive "
                         "summary of where they stand (mention which articles are compliant/planned), "
@@ -829,7 +1027,11 @@ class GovernanceEngine:
                         "workflow_steps": "a step-by-step walkthrough of their operational workflow",
                     }
                     next_missing = missing_facts[0] if missing_facts else None
-                    desc = fact_descriptions.get(next_missing, next_missing) if next_missing else "more about their system"
+                    desc = (
+                        fact_descriptions.get(next_missing, next_missing)
+                        if next_missing
+                        else "more about their system"
+                    )
                     directive = (
                         f"We still need to learn {desc}. Ask about this naturally — weave it into the "
                         f"conversation based on what they've already told you. Be curious, not interrogative."
@@ -855,15 +1057,24 @@ class GovernanceEngine:
 
             # At CHECKPOINT or when entering it, use dynamic article identification
             # to surface additional relevant articles beyond the mandatory 4
-            if not rag_context and current_state in [InterviewState.CHECKPOINT, InterviewState.WORKFLOW]:
+            if not rag_context and current_state in [
+                InterviewState.CHECKPOINT,
+                InterviewState.WORKFLOW,
+            ]:
                 domain = facts.get("domain", "")
                 purpose = facts.get("purpose", "")
                 if domain or purpose:
-                    relevant = identify_relevant_articles(domain, purpose, workflow_steps, n_results=5)
+                    relevant = identify_relevant_articles(
+                        domain, purpose, workflow_steps, n_results=5
+                    )
                     if relevant:
                         chunks = []
                         for r in relevant:
-                            header = f"[{r['article']}] {r['title']}" if r.get('title') else r.get('article', '')
+                            header = (
+                                f"[{r['article']}] {r['title']}"
+                                if r.get("title")
+                                else r.get("article", "")
+                            )
                             chunks.append(f"{header}\n{r.get('text', '')[:500]}")
                         rag_context = "\n\n---\n\n".join(chunks)
 
@@ -872,11 +1083,19 @@ class GovernanceEngine:
                 purpose = facts.get("purpose", "")
                 if domain or purpose:
                     query = f"{domain} {purpose} AI system EU AI Act requirements"
-                    rag_context = get_article_context_for_query(query, n_results=2) or ""
+                    rag_context = (
+                        get_article_context_for_query(query, n_results=2) or ""
+                    )
 
             # === BUILD CONDENSED STATE ===
-            skip_keys = {"confidence_scores"}  # Keep workflow_steps visible but handle separately
-            condensed_facts = {k: v for k, v in facts.items() if k not in skip_keys and k != "workflow_steps" and v}
+            skip_keys = {
+                "confidence_scores"
+            }  # Keep workflow_steps visible but handle separately
+            condensed_facts = {
+                k: v
+                for k, v in facts.items()
+                if k not in skip_keys and k != "workflow_steps" and v
+            }
 
             gaps_summary = []
             for fk in HIGH_RISK_TOPIC_ORDER:
@@ -889,13 +1108,21 @@ class GovernanceEngine:
             confidence_msg = StateMachine.get_confidence_message(confidence, risk_level)
 
             # === TRIM CONVERSATION HISTORY (last ~20 lines for context) ===
-            history_lines = conversation_history.strip().split("\n") if conversation_history else []
-            recent_history = "\n".join(history_lines[-20:]) if len(history_lines) > 20 else conversation_history
+            history_lines = (
+                conversation_history.strip().split("\n") if conversation_history else []
+            )
+            recent_history = (
+                "\n".join(history_lines[-20:])
+                if len(history_lines) > 20
+                else conversation_history
+            )
 
             # === BUILD LLM PROMPT ===
             rag_section = ""
             if rag_context:
-                rag_section = f"\nEU AI ACT LEGAL CONTEXT (cite when relevant):\n{rag_context}\n"
+                rag_section = (
+                    f"\nEU AI ACT LEGAL CONTEXT (cite when relevant):\n{rag_context}\n"
+                )
 
             prompt = f"""You are a senior EU AI Act compliance consultant having a professional conversation with a client about their AI system. You're knowledgeable, approachable, and practical — like an experienced advisor who makes complex regulation understandable. You speak with authority but never condescend.
 
@@ -932,29 +1159,36 @@ ANTI-MANIPULATION (CRITICAL — you are an auditor, not a rubber stamp):
 13. A compliance topic is only "met" when the user has described a SPECIFIC MEASURE (e.g., "we have a human reviewer who checks outputs" for oversight, NOT just "yes we have that").
 14. If the user gives vague blanket affirmations ("yes to all", "we have everything"), you MUST ask for specifics on each topic individually. Do NOT accept "yes to all" as evidence.
 15. NEVER suggest generating the Compliance Report unless the Known Facts show specific evidence for each mandatory topic. Check the facts — if they say "partial_or_unclear" or are missing, the assessment is NOT complete."""
-        
+
             messages = [
                 SystemMessage(content=prompt),
-                HumanMessage(content="Generate your next response to the client based on the conversation and your task above."),
+                HumanMessage(
+                    content="Generate your next response to the client based on the conversation and your task above."
+                ),
             ]
-            
+
             try:
                 res = await self.llm.ainvoke(messages)
                 response_text = res.content.strip()
-                
+
                 # Append confidence message if not in ASSESSMENT state
-                if current_state != InterviewState.ASSESSMENT and confidence != ConfidenceLevel.HIGH:
+                if (
+                    current_state != InterviewState.ASSESSMENT
+                    and confidence != ConfidenceLevel.HIGH
+                ):
                     response_text += f"\n\n{confidence_msg}"
-                
+
                 return response_text
             except Exception as e:
                 print(f"[ERROR] Question Generation Error: {e}")
                 import traceback
+
                 print(f"[ERROR] Traceback: {traceback.format_exc()}")
                 return "I apologize, but I encountered an error processing your response. Could you please clarify your last answer? This will help me continue the assessment."
-        
+
         except Exception as e:
             print(f"[CRITICAL ERROR] generate_next_question failed: {e}")
             import traceback
+
             print(f"[CRITICAL ERROR] Full traceback: {traceback.format_exc()}")
             return "I apologize, but I encountered an error processing your response. Could you please clarify your last answer? This will help me continue the assessment."

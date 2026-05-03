@@ -12,7 +12,9 @@ import re
 from collections import Counter
 
 # Path to the ingested articles JSON
-ARTICLES_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "eu_ai_act_articles.json")
+ARTICLES_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "eu_ai_act_articles.json"
+)
 
 # In-memory cache
 _articles: list[dict] | None = None
@@ -23,19 +25,121 @@ _idf: dict | None = None
 def _tokenize(text: str) -> list[str]:
     """Simple tokenizer: lowercase, split on non-alphanumeric, remove stopwords."""
     stopwords = {
-        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
-        "have", "has", "had", "do", "does", "did", "will", "would", "could",
-        "should", "may", "might", "shall", "can", "need", "must", "ought",
-        "to", "of", "in", "for", "on", "with", "at", "by", "from", "as",
-        "into", "through", "during", "before", "after", "above", "below",
-        "between", "out", "off", "over", "under", "again", "further", "then",
-        "once", "here", "there", "when", "where", "why", "how", "all", "each",
-        "every", "both", "few", "more", "most", "other", "some", "such", "no",
-        "nor", "not", "only", "own", "same", "so", "than", "too", "very",
-        "and", "but", "or", "if", "while", "because", "until", "that", "which",
-        "who", "whom", "this", "these", "those", "it", "its", "they", "them",
-        "their", "we", "our", "you", "your", "he", "she", "him", "her", "his",
-        "what", "any", "also", "about", "up", "just", "whether", "upon",
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "shall",
+        "can",
+        "need",
+        "must",
+        "ought",
+        "to",
+        "of",
+        "in",
+        "for",
+        "on",
+        "with",
+        "at",
+        "by",
+        "from",
+        "as",
+        "into",
+        "through",
+        "during",
+        "before",
+        "after",
+        "above",
+        "below",
+        "between",
+        "out",
+        "off",
+        "over",
+        "under",
+        "again",
+        "further",
+        "then",
+        "once",
+        "here",
+        "there",
+        "when",
+        "where",
+        "why",
+        "how",
+        "all",
+        "each",
+        "every",
+        "both",
+        "few",
+        "more",
+        "most",
+        "other",
+        "some",
+        "such",
+        "no",
+        "nor",
+        "not",
+        "only",
+        "own",
+        "same",
+        "so",
+        "than",
+        "too",
+        "very",
+        "and",
+        "but",
+        "or",
+        "if",
+        "while",
+        "because",
+        "until",
+        "that",
+        "which",
+        "who",
+        "whom",
+        "this",
+        "these",
+        "those",
+        "it",
+        "its",
+        "they",
+        "them",
+        "their",
+        "we",
+        "our",
+        "you",
+        "your",
+        "he",
+        "she",
+        "him",
+        "her",
+        "his",
+        "what",
+        "any",
+        "also",
+        "about",
+        "up",
+        "just",
+        "whether",
+        "upon",
     }
     tokens = re.findall(r"[a-z0-9]+", text.lower())
     return [t for t in tokens if t not in stopwords and len(t) > 1]
@@ -63,8 +167,8 @@ def _cosine_similarity(v1: dict, v2: dict) -> float:
     if not common:
         return 0.0
     dot = sum(v1[k] * v2[k] for k in common)
-    mag1 = math.sqrt(sum(v ** 2 for v in v1.values()))
-    mag2 = math.sqrt(sum(v ** 2 for v in v2.values()))
+    mag1 = math.sqrt(sum(v**2 for v in v1.values()))
+    mag2 = math.sqrt(sum(v**2 for v in v2.values()))
     if mag1 == 0 or mag2 == 0:
         return 0.0
     return dot / (mag1 * mag2)
@@ -78,7 +182,9 @@ def _load_articles():
         return
 
     if not os.path.exists(ARTICLES_PATH):
-        print(f"[WARNING] Articles file not found at {ARTICLES_PATH}. Run 'python ingest_eu_ai_act.py' first.")
+        print(
+            f"[WARNING] Articles file not found at {ARTICLES_PATH}. Run 'python ingest_eu_ai_act.py' first."
+        )
         _articles = []
         _tfidf_matrix = []
         _idf = {}
@@ -91,7 +197,9 @@ def _load_articles():
     tokenized_docs = []
     for art in _articles:
         # Combine title + text for richer matching
-        combined = f"{art.get('article', '')} {art.get('title', '')} {art.get('text', '')}"
+        combined = (
+            f"{art.get('article', '')} {art.get('title', '')} {art.get('text', '')}"
+        )
         tokenized_docs.append(_tokenize(combined))
 
     _idf = _build_idf(tokenized_docs)
@@ -123,12 +231,14 @@ def query_articles(query_text: str, n_results: int = 5) -> list[dict]:
     results = []
     for score, idx in scored[:n_results]:
         art = _articles[idx]
-        results.append({
-            "article": art.get("article", "Unknown"),
-            "title": art.get("title", ""),
-            "text": art.get("text", ""),
-            "score": round(score, 4),
-        })
+        results.append(
+            {
+                "article": art.get("article", "Unknown"),
+                "title": art.get("title", ""),
+                "text": art.get("text", ""),
+                "score": round(score, 4),
+            }
+        )
     return results
 
 
@@ -169,17 +279,19 @@ def query_by_topic(topic_key: str, n_results: int = 3) -> str:
 
     chunks = []
     for r in results:
-        header = f"[{r['article']}] {r['title']}" if r['title'] else r['article']
+        header = f"[{r['article']}] {r['title']}" if r["title"] else r["article"]
         chunks.append(f"{header}\n{r['text']}")
 
     return "\n\n---\n\n".join(chunks)
 
 
-def identify_relevant_articles(domain: str, purpose: str, workflow_steps: list, n_results: int = 8) -> list[dict]:
+def identify_relevant_articles(
+    domain: str, purpose: str, workflow_steps: list, n_results: int = 8
+) -> list[dict]:
     """
     Given a business description and workflow, identify which EU AI Act articles are most relevant.
     Returns a list of dicts: [{"article": ..., "title": ..., "text": ..., "score": ...}, ...]
-    
+
     This is used at CHECKPOINT to dynamically determine which articles to evaluate,
     rather than always checking the same 4 hardcoded articles.
     """

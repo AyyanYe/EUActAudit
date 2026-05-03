@@ -691,6 +691,7 @@ def ingest():
 
     # Force reload
     import core.vector_store as vs
+
     vs._articles = None
     vs._tfidf_matrix = None
     vs._idf = None

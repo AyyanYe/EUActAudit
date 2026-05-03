@@ -9,6 +9,21 @@ import { ShieldCheck, Download, Loader2, Plus, ArrowRight, ExternalLink } from "
 import { AuditService } from "./../services/api";
 import { useUser } from "@clerk/clerk-react";
 
+interface RiskProfile {
+  risk_level: string;
+  metrics: string[];
+}
+
+interface MetricBreakdown {
+  name: string;
+  score: number;
+}
+
+interface AuditResults {
+  compliance_score: number;
+  metric_breakdown?: MetricBreakdown[];
+}
+
 export function AuditRun() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -23,8 +38,8 @@ export function AuditRun() {
   const [selectedModel, setSelectedModel] = useState('openai/gpt-3.5-turbo');
 
   // Results
-  const [riskProfile, setRiskProfile] = useState<any>(null);
-  const [auditResults, setAuditResults] = useState<any>(null);
+  const [riskProfile, setRiskProfile] = useState<RiskProfile | null>(null);
+  const [auditResults, setAuditResults] = useState<AuditResults | null>(null);
 
   const addMetric = () => {
     if (customMetric && userMetrics.length < 4) {
@@ -40,7 +55,7 @@ export function AuditRun() {
       const data = await AuditService.analyzeRisk(description, userMetrics);
       setRiskProfile(data);
       setStep(2); // Move to review step
-    } catch (error) {
+    } catch {
       alert("Error connecting to Backend. Make sure your Python server is running!");
     } finally {
       setLoading(false);
@@ -48,6 +63,7 @@ export function AuditRun() {
   };
 
   const handleRunAudit = async () => {
+      if (!riskProfile) return;
       setLoading(true);
       try {
         // CHANGED: Now passing description as the final 'systemPrompt' argument
@@ -61,7 +77,7 @@ export function AuditRun() {
         );
         setAuditResults(results);
         setStep(3);
-      } catch (error) {
+      } catch {
         alert("Audit failed. Please check your API Key.");
       } finally {
         setLoading(false);
@@ -70,7 +86,8 @@ export function AuditRun() {
 
   const handleDownload = async () => {
     try {
-      const blob = await AuditService.downloadReport(auditResults);
+      if (!auditResults) return;
+      const blob = await AuditService.downloadReport(auditResults as unknown as Record<string, unknown>);
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -207,7 +224,7 @@ export function AuditRun() {
             <p className="text-xl text-slate-600 font-medium">Compliance Score</p>
             
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 py-4">
-              {auditResults.metric_breakdown?.map((m: any) => (
+              {auditResults.metric_breakdown?.map((m: MetricBreakdown) => (
                 <div key={m.name} className="p-3 bg-slate-50 rounded-lg">
                   <div className="text-sm text-slate-500 mb-1">{m.name}</div>
                   <div className="font-bold text-lg">{m.score}/100</div>

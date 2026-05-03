@@ -55,19 +55,25 @@ def get_dashboard_stats(
 
     # ── 1. Summary stats ────────────────────────────────────────────────
     total = len(projects)
-    active = sum(1 for p in projects if p.interview_state not in ("ASSESSMENT", "TERMINATED", None))
+    active = sum(
+        1
+        for p in projects
+        if p.interview_state not in ("ASSESSMENT", "TERMINATED", None)
+    )
     completed = sum(1 for p in projects if p.interview_state == "ASSESSMENT")
-    high_risk = sum(1 for p in projects if (p.risk_level or "").upper() in ("HIGH", "UNACCEPTABLE"))
+    high_risk = sum(
+        1 for p in projects if (p.risk_level or "").upper() in ("HIGH", "UNACCEPTABLE")
+    )
 
     # Obligation stats across all user projects
     all_obligations = (
-        db.query(Obligation)
-        .filter(Obligation.project_id.in_(project_ids))
-        .all()
+        db.query(Obligation).filter(Obligation.project_id.in_(project_ids)).all()
     )
     total_obligations = len(all_obligations)
     met_count = sum(1 for o in all_obligations if (o.status or "").upper() == "MET")
-    compliance_rate = round(met_count / total_obligations * 100) if total_obligations else 0
+    compliance_rate = (
+        round(met_count / total_obligations * 100) if total_obligations else 0
+    )
 
     summary = {
         "total_assessments": total,
@@ -138,18 +144,20 @@ def get_dashboard_stats(
         p_met = sum(1 for o in p_obligations if (o.status or "").upper() == "MET")
         progress = round(p_met / p_total * 100) if p_total else 0
 
-        recent_projects.append({
-            "id": p.id,
-            "name": p.name or "Untitled",
-            "description": (p.description or "")[:80],
-            "risk_level": p.risk_level or "Unknown",
-            "status": p.status or "Draft",
-            "state": p.interview_state or "INIT",
-            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-            "obligation_count": p_total,
-            "met_count": p_met,
-            "progress": progress,
-        })
+        recent_projects.append(
+            {
+                "id": p.id,
+                "name": p.name or "Untitled",
+                "description": (p.description or "")[:80],
+                "risk_level": p.risk_level or "Unknown",
+                "status": p.status or "Draft",
+                "state": p.interview_state or "INIT",
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+                "obligation_count": p_total,
+                "met_count": p_met,
+                "progress": progress,
+            }
+        )
 
     # ── 5. Top compliance gaps (most common unmet obligations) ──────────
     gap_counts: dict[str, dict] = {}
@@ -184,10 +192,12 @@ def get_dashboard_stats(
     day_map = {str(row.day): row.cnt for row in logs}
     for i in range(14):
         d = (fourteen_days_ago + timedelta(days=i)).date()
-        activity_timeline.append({
-            "date": d.strftime("%b %d"),
-            "messages": day_map.get(str(d), 0),
-        })
+        activity_timeline.append(
+            {
+                "date": d.strftime("%b %d"),
+                "messages": day_map.get(str(d), 0),
+            }
+        )
 
     return {
         "summary": summary,

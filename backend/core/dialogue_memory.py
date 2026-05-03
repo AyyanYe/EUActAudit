@@ -2,9 +2,15 @@
 Dialogue memory: count how many times we asked about each mandatory topic (from bot messages).
 Used for stuck detection and to avoid repeating the same question (force multiple-choice or pivot).
 """
+
 from typing import Optional
 
-HIGH_RISK_TOPIC_ORDER = ["human_oversight", "data_governance", "accuracy_robustness", "record_keeping"]
+HIGH_RISK_TOPIC_ORDER = [
+    "human_oversight",
+    "data_governance",
+    "accuracy_robustness",
+    "record_keeping",
+]
 
 ARTICLE_PHRASES = {
     "human_oversight": "Article 14",
@@ -52,12 +58,14 @@ def compute_stuck_on_topic(
         if fact_key == "human_oversight":
             resolved = (
                 val in RESOLVED_VALUES
-                or (fact_dict.get("remediation_accepted") or "").strip().lower() == "yes"
+                or (fact_dict.get("remediation_accepted") or "").strip().lower()
+                == "yes"
             )
         else:
             resolved = (
                 val in RESOLVED_VALUES
-                or (fact_dict.get(f"{fact_key}_remediation") or "").strip().lower() == "yes"
+                or (fact_dict.get(f"{fact_key}_remediation") or "").strip().lower()
+                == "yes"
             )
         if not resolved:
             return fact_key

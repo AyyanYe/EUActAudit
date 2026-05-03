@@ -81,7 +81,7 @@ export function Dashboard() {
       }
     }
     load();
-  }, []);
+  }, [getToken]);
 
   const s = data.summary;
 
@@ -191,7 +191,7 @@ export function Dashboard() {
                     </Pie>
                     <Tooltip
                       contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                      formatter={(value: any, name: any) => [`${value} project${value !== 1 ? 's' : ''}`, name]}
+                      formatter={(value: number | string | undefined, name: string | undefined) => [`${value} project${value !== 1 ? 's' : ''}`, name]}
                     />
                     <Legend
                       verticalAlign="bottom"
@@ -231,7 +231,7 @@ export function Dashboard() {
                     <YAxis fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                     <Tooltip
                       contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
-                      formatter={(value: any) => [`${value} messages`, 'Activity']}
+                      formatter={(value: number | string | undefined) => [`${value} messages`, 'Activity']}
                     />
                     <Area
                       type="monotone"
@@ -417,7 +417,7 @@ function DashboardHeader() {
 
 function KpiCard({ title, value, subtitle, icon: Icon, color, bgColor }: {
   title: string; value: string | number; subtitle: string;
-  icon: any; color: string; bgColor: string;
+  icon: React.ElementType; color: string; bgColor: string;
 }) {
   return (
     <Card className="shadow-sm hover:shadow-md transition-shadow">

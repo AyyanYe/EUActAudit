@@ -62,7 +62,9 @@ def get_article_context_for_query(query: str, n_results: int = 3) -> str:
         if results:
             chunks = []
             for r in results:
-                header = f"[{r['article']}] {r['title']}" if r['title'] else r['article']
+                header = (
+                    f"[{r['article']}] {r['title']}" if r["title"] else r["article"]
+                )
                 chunks.append(f"{header}\n{r['text']}")
             return "\n\n---\n\n".join(chunks)
     return ""

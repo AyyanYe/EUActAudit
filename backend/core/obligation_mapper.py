@@ -17,20 +17,33 @@ FACT_TO_OBLIGATION_MAP = {
 # Reverse mapping: obligation codes to fact keys
 OBLIGATION_TO_FACT_MAP = {v: k for k, v in FACT_TO_OBLIGATION_MAP.items()}
 
+
 def get_obligation_code_for_fact(fact_key: str) -> str:
     """Get the obligation code for a given fact key."""
     return FACT_TO_OBLIGATION_MAP.get(fact_key)
 
+
 def get_fact_key_for_obligation(obligation_code: str) -> str:
     """Get the fact key for a given obligation code."""
     return OBLIGATION_TO_FACT_MAP.get(obligation_code)
+
 
 def is_negative_value(value: str) -> bool:
     """Check if a fact value indicates absence/gap. For human_oversight, 'partial' is non-compliant under Article 14."""
     if not value:
         return False
     value_lower = value.lower()
-    return value_lower in ["no", "absent", "partial", "none", "not", "we don't", "we do not", "missing"]
+    return value_lower in [
+        "no",
+        "absent",
+        "partial",
+        "none",
+        "not",
+        "we don't",
+        "we do not",
+        "missing",
+    ]
+
 
 def is_positive_value(value: str) -> bool:
     """Check if a fact value indicates presence/compliance."""
@@ -39,12 +52,19 @@ def is_positive_value(value: str) -> bool:
     value_lower = value.lower()
     return value_lower in ["yes", "present", "implemented", "we have", "we do"]
 
+
 def is_planned_value(value: str) -> bool:
     """Check if a fact value indicates planned remediation."""
     if not value:
         return False
     value_lower = value.lower()
-    return value_lower in ["planned_remediation", "planned", "will implement", "we'll add", "future"]
+    return value_lower in [
+        "planned_remediation",
+        "planned",
+        "will implement",
+        "we'll add",
+        "future",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +74,7 @@ def is_planned_value(value: str) -> bool:
 # Facts below this threshold trigger a verification question before
 # the system uses them for compliance decisions.
 CONFIDENCE_THRESHOLD = 70
+
 
 def compute_fact_confidence(fact_key: str, fact_value: str) -> int:
     """
@@ -100,4 +121,3 @@ def compute_fact_confidence(fact_key: str, fact_value: str) -> int:
         return 85
 
     return 60  # Very short values are suspect
-

@@ -116,9 +116,7 @@ export function GovernanceChat() {
     };
   }, [messages, loading]);
 
-  // Debug: Log messages changes
-  useEffect(() => {
-  }, [messages]);
+  // Debug: Log messages changes (removed empty block)
 
   // Load projects function - called only when user clicks "View History"
   const loadProjects = async () => {
@@ -133,7 +131,6 @@ export function GovernanceChat() {
         console.warn('2. Authentication issue (user_id mismatch)');
         console.warn('3. Database connection issue');
         console.warn('4. All projects are filtered out by user_id check');
-      } else {
       }
     } catch (e) {
       console.error('Failed to load projects:', e);

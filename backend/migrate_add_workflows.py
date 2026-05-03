@@ -2,18 +2,22 @@
 Migration script to add workflows table and update interview_logs table.
 Run this once to add the workflows feature to existing databases.
 """
+
 import sqlite3
 from datetime import datetime
 
 DB_PATH = "./eu_ai_act_2025.db"
 
+
 def migrate():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
+
     try:
         # Check if workflows table already exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='workflows'")
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='workflows'"
+        )
         if cursor.fetchone():
             print("Workflows table already exists. Skipping creation.")
         else:
@@ -30,12 +34,12 @@ def migrate():
                 )
             """)
             print("Created workflows table.")
-        
+
         # Check if workflow_id column already exists in interview_logs
         cursor.execute("PRAGMA table_info(interview_logs)")
         columns = [col[1] for col in cursor.fetchall()]
-        
-        if 'workflow_id' in columns:
+
+        if "workflow_id" in columns:
             print("workflow_id column already exists in interview_logs. Skipping.")
         else:
             # Add workflow_id column to interview_logs
@@ -45,10 +49,10 @@ def migrate():
                 ON interview_logs(workflow_id)
             """)
             print("Added workflow_id column to interview_logs table.")
-        
+
         conn.commit()
         print("Migration completed successfully!")
-        
+
     except Exception as e:
         conn.rollback()
         print(f"Migration failed: {e}")
@@ -56,6 +60,6 @@ def migrate():
     finally:
         conn.close()
 
+
 if __name__ == "__main__":
     migrate()
-
