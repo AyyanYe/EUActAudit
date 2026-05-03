@@ -38,6 +38,19 @@ jobs:
         # exit-zero treats all errors as warnings
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
+    - name: Run Backend Integration Tests
+      env:
+        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      run: |
+        # Start the FastAPI server in the background
+        uvicorn main:app --port 8000 &
+        # Wait for the server to be ready
+        sleep 5
+        # Run the test scripts
+        python tests/test_conversation.py
+        python tests/test_expert_consultation.py
+        python tests/test_prohibited_practice.py
+
   frontend-checks:
     runs-on: ubuntu-latest
     defaults:
