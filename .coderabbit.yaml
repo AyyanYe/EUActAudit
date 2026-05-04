@@ -1,0 +1,52 @@
+# .coderabbit.yaml
+# CodeRabbit configuration to enforce structured, high-quality PR reviews
+
+language: "en-US"
+
+# Directs the AI on how to communicate
+tone_instructions: |
+  You are an expert Principal Engineer and Security Auditor. Your tone is professional, direct, and highly structured. 
+  Focus on actionable feedback rather than minor nitpicks. Highlight the 'why' behind any requested changes.
+
+reviews:
+  # 'chill' profile makes it focus on significant bugs rather than being too noisy with stylistic suggestions
+  profile: "chill"
+  
+  # Generates a detailed summary of the PR
+  high_level_summary: true
+  
+  # Provides a file-by-file walkthrough of changes
+  collapse_walkthrough: false
+  
+  # Do not auto-generate poems in the review
+  poem: false
+  
+  # Automatically review every pull request that is opened
+  auto_review:
+    enabled: true
+    drafts: false # Skip drafts to save resources
+    ignore_title_keywords:
+      - "WIP"
+      - "Draft"
+      - "[skip-review]"
+  
+  # Ensure it ignores non-code files to reduce noise
+  path_filters:
+    - "!*.md"
+    - "!*.lock"
+    - "!package-lock.json"
+    - "!.gitignore"
+
+# Provide specific instructions to CodeRabbit on what to look out for
+instructions: |
+  Perform a deep, structured code review. Prioritize and actively look for:
+  
+  1. CRITICAL ISSUES: Security vulnerabilities (SQLi, XSS, exposed secrets, unauthorized access).
+  2. RUNTIME BUGS: Unhandled exceptions, null pointer references, memory leaks, and infinite loops.
+  3. TYPESCRIPT/REACT (frontend/**/*.tsx): Look for improper hook usage, missing dependencies in useEffect, state mutations, and any missing explicit types (reject the use of `any`).
+  4. PYTHON/FASTAPI (backend/**/*.py): Ensure proper asynchronous handling, secure database queries using SQLAlchemy, and robust exception handling.
+  5. COMPLIANCE: Ensure error messages do not leak sensitive backend paths or stack traces.
+
+chat:
+  # Allows you to chat with the bot in PR comments
+  auto_reply: true
