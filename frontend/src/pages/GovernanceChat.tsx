@@ -363,12 +363,12 @@ export function GovernanceChat() {
   if (!started || showHistory) {
     return (
       <div className="max-w-6xl mx-auto mt-10 space-y-6 animate-in fade-in">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">EU AI Act Compliance</h1>
-            <p className="text-slate-500">Automated Governance & Risk Classification</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">EU AI Act Compliance</h1>
+            <p className="text-sm sm:text-base text-slate-500 font-medium">Automated Governance & Risk Classification</p>
           </div>
-          <Button onClick={() => { setShowHistory(false); setStarted(false); }} variant="outline">
+          <Button onClick={() => { setShowHistory(false); setStarted(false); }} variant="outline" className="w-full sm:w-auto justify-center">
             <Plus className="h-4 w-4 mr-2" /> New Assessment
           </Button>
         </div>
@@ -463,22 +463,22 @@ export function GovernanceChat() {
         </div>
       </div>
 
-      <div className="flex h-[calc(100vh-180px)] gap-6">
+      <div className="flex flex-col lg:flex-row h-auto lg:h-[calc(100vh-180px)] gap-6">
         {/* LEFT: CHAT INTERFACE */}
-        <Card className="w-2/3 flex flex-col shadow-lg border-slate-200">
+        <Card className="w-full lg:w-2/3 flex flex-col shadow-lg border-slate-200 min-h-[550px] lg:min-h-0 lg:h-full">
           <CardHeader className="border-b bg-slate-50 py-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Bot className="h-5 w-5 text-blue-600" />
                 AI Compliance Consultant
               </CardTitle>
-              <div className="flex gap-2">
-                <Button onClick={() => { setShowHistory(true); setStarted(false); }} variant="ghost" size="sm">
+              <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                <Button onClick={() => { setShowHistory(true); setStarted(false); }} variant="ghost" size="sm" className="flex-1 sm:flex-none justify-center">
                   <History className="h-4 w-4 mr-2" /> History
                 </Button>
                 {currentState === "ASSESSMENT" && (
-                  <Button onClick={handleGenerateReport} variant="outline" size="sm" disabled={loading}>
-                    <Download className="h-4 w-4 mr-2" /> Download Report (for human review)
+                  <Button onClick={handleGenerateReport} variant="outline" size="sm" disabled={loading} className="flex-1 sm:flex-none justify-center">
+                    <Download className="h-4 w-4 mr-2" /> Download Report
                   </Button>
                 )}
               </div>
@@ -582,7 +582,7 @@ export function GovernanceChat() {
         </Card>
 
         {/* RIGHT: LIVE GOVERNANCE STATE */}
-        <div className="w-1/3 space-y-6">
+        <div className="w-full lg:w-1/3 space-y-6">
 
           {/* 1. RISK LEVEL CARD */}
           <Card className={`border-l-4 shadow-md ${riskLevel === "UNACCEPTABLE" || riskLevel === "HIGH" ? "border-l-red-500" :
