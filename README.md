@@ -51,3 +51,12 @@ This software originally started as a course project at **TU Darmstadt**, German
 ---
 
 *For support, feature requests, or bug reports, please open an Issue on GitHub.*
+
+---
+
+## Contributors
+
+Thank you to all the amazing people who have helped build this project!
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
